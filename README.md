@@ -305,7 +305,19 @@ All note creation, editing, and persistence is **100% delegated to Bible.com / Y
 
 - **Bug Reports & Feature Requests:** [Feedback & Bug Report Form](https://forms.gle/FN8w2g7MakzTS9GZ9)
 - **Privacy Policy:** [PRIVACY.md](PRIVACY.md) (100% private, local-first, zero data collection)
+- **License:** [PolyForm Noncommercial License 1.0.0](LICENSE)
 - **GitHub Repository:** [https://github.com/Aussie-App-Studio/Deep-Bible](https://github.com/Aussie-App-Studio/Deep-Bible)
+
+---
+
+## License
+
+This project is published under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
+
+* **Free to use & modify:** You are welcome to view, modify, remix, and adapt the code for personal study, education, church ministries, or hobby projects.
+* **Share-alike spirit:** If you share or distribute changes, you must give it away freely under the same non-commercial terms.
+* **No commercial sale:** You may **not** sell this code, charge subscriptions, or bundle it into commercial/for-profit products.
+* **Branding Reservation:** All visual assets, logos, and Chrome Web Store graphics are Copyright © 2026 Aussie App Studio. All rights reserved.
 
 ---
 
