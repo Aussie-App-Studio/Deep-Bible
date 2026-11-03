@@ -1,0 +1,16 @@
+# Scratch and temporary testing files
+scratch/
+messages_current_screen.png
+
+# Build and packaging output
+dist/
+*.crx
+*.pem
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# IDE and Editor directories
+.vscode/
+.idea/
