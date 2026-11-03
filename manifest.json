@@ -67,7 +67,8 @@
         "icon48.png",
         "icon128.png",
         "fonts/*",
-        "welcome/*"
+        "welcome/*",
+        "privacy.html"
       ],
       "matches": ["https://www.bible.com/*"]
     }

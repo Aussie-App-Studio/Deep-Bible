@@ -303,8 +303,9 @@ All note creation, editing, and persistence is **100% delegated to Bible.com / Y
 
 ## Feedback & Support
 
-Have an idea for a new feature, a Bible translation you'd like added, or found a bug?
-Please share your thoughts via the **[Feedback & Bug Report Form](https://forms.gle/FN8w2g7MakzTS9GZ9)**! Every response is read and appreciated.
+- **Bug Reports & Feature Requests:** [Feedback & Bug Report Form](https://forms.gle/FN8w2g7MakzTS9GZ9)
+- **Privacy Policy:** [PRIVACY.md](PRIVACY.md) (100% private, local-first, zero data collection)
+- **GitHub Repository:** [https://github.com/Aussie-App-Studio/Deep-Bible](https://github.com/Aussie-App-Studio/Deep-Bible)
 
 ---
 
