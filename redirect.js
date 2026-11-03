@@ -20,7 +20,54 @@
     }
   }
 
+  // Intercepts searches on bible.com/search/bible?q=... and redirects direct scripture references
+  // immediately to the passage reader view (like BibleGateway's quicksearch)
+  function checkSearchRedirect() {
+    if (!location.pathname.includes("/search/bible")) return;
+    const params = new URLSearchParams(location.search);
+    const q = params.get("q");
+    if (!q) return;
+
+    const ref = typeof bbeParseSearch === "function" ? bbeParseSearch(q) : null;
+    if (!ref) return;
+
+    let targetAbbr = ref.version || null;
+    let targetId = targetAbbr ? (typeof bbeIdForSuffix === "function" ? bbeIdForSuffix(targetAbbr) : null) : null;
+
+    if (!targetId && params.has("version_id")) {
+      const vid = Number(params.get("version_id"));
+      if (vid) {
+        targetId = vid;
+        targetAbbr = typeof bbeKeyForId === "function" ? bbeKeyForId(vid) : "ESV";
+      }
+    }
+
+    if (!targetId && typeof chrome !== "undefined" && chrome.storage && chrome.storage.sync) {
+      chrome.storage.sync.get(["toolbarVersions", "activeTranslation"], (data) => {
+        let vCode = "ESV";
+        if (data && data.activeTranslation) {
+          vCode = data.activeTranslation.toUpperCase();
+        } else if (data && Array.isArray(data.toolbarVersions) && data.toolbarVersions.length > 0) {
+          vCode = data.toolbarVersions[0].toUpperCase();
+        }
+        const vId = (typeof bbeIdForSuffix === "function" ? bbeIdForSuffix(vCode) : null) || 59;
+        const vPart = ref.verses ? `.${ref.verses}` : "";
+        location.replace(`/bible/${vId}/${ref.book}.${ref.chapter}${vPart}.${vCode}`);
+      });
+      return;
+    }
+
+    if (!targetId) {
+      targetId = 59;
+      targetAbbr = "ESV";
+    }
+
+    const vPart = ref.verses ? `.${ref.verses}` : "";
+    location.replace(`/bible/${targetId}/${ref.book}.${ref.chapter}${vPart}.${targetAbbr || "ESV"}`);
+  }
+
   checkAndRedirect();
+  checkSearchRedirect();
 
   // Watch for history pushState / replaceState and SPA URL transitions via event hooks
   let lastHref = location.href;
@@ -28,6 +75,7 @@
     if (location.href !== lastHref) {
       lastHref = location.href;
       checkAndRedirect();
+      checkSearchRedirect();
     }
   }
 

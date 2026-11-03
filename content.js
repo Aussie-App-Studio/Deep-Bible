@@ -3527,7 +3527,10 @@
 
     const ref = bbeParseSearch(q);
     const allVers = getAllVersions();
-    const ver = allVers[activeKey] || allVers.NIV || BBE_VERSIONS.NIV;
+    const targetKey = (ref && ref.version) || activeKey;
+    const targetId = (ref && ref.version) ? (bbeIdForSuffix(ref.version, allVers) || (allVers[ref.version] ? allVers[ref.version].id : null)) : null;
+    const ver = (targetId && targetKey) ? { id: targetId, short: targetKey } : (allVers[activeKey] || allVers.NIV || BBE_VERSIONS.NIV);
+    const finalKey = targetKey || activeKey;
 
     if (ref) {
       // Pre-check if this chapter's max verse count is already known
@@ -3555,12 +3558,12 @@
           book: ref.book,
           chapter: String(ref.chapter),
           verses: ref.verses || null,
-          abbr: activeKey
-        }, activeKey);
+          abbr: finalKey
+        }, finalKey);
         return;
       }
       // Direct jump to scripture reference
-      const path = `/bible/${ver.id}/${ref.book}.${ref.chapter}${ref.verses ? "." + ref.verses : ""}.${activeKey}`;
+      const path = `/bible/${ver.id}/${ref.book}.${ref.chapter}${ref.verses ? "." + ref.verses : ""}.${finalKey}`;
       location.href = path;
     } else {
       // Keyword search on Bible.com
@@ -5199,6 +5202,22 @@
             <div class="bbe-input-label" style="margin-bottom:4px;">Your Custom Added Translations:</div>
             <div class="bbe-custom-list" id="bbe-modal-custom-list"></div>
           </div>
+        </div>
+
+        <div class="bbe-modal-card" style="padding:10px 14px;">
+          <details style="cursor:pointer;">
+            <summary style="font-weight:600;font-size:11.5px;color:var(--bbe-text-muted);user-select:none;">
+              💡 Power-User Tip: Browser Address Bar Search Shortcut (Brave / Chrome)
+            </summary>
+            <div style="margin-top:8px;font-size:11.5px;line-height:1.45;color:var(--bbe-text-muted);cursor:default;">
+              To type <code>b &lt;scripture&gt;</code> (e.g. <code>b John 3:16</code>) directly in your browser's address bar:
+              <ol style="margin:4px 0;padding-left:16px;">
+                <li>Open browser settings to <b>Site search</b> (<code>brave://settings/searchEngines</code>).</li>
+                <li>Add shortcut: <b>b</b> with URL: <code>https://www.bible.com/search/bible?q=%s</code></li>
+                <li>Deep Bible automatically catches scripture searches and jumps straight to the reader!</li>
+              </ol>
+            </div>
+          </details>
         </div>
       `;
 

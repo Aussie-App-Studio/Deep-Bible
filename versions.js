@@ -270,20 +270,44 @@ function bbeBuildPath(id, abbr, p) {
 }
 
 // Parses user search query into either a direct scripture target or keyword search
+// Supports references (e.g. "John 3:16", "Romans 8", "1 Cor 13:4-8", "Ps 23", "Jude 24")
+// and optional trailing version codes (e.g. "John 3:16 NIV", "Rom 8:28 in ESV")
 function bbeParseSearch(input) {
   if (!input) return null;
   const s = input.trim();
   // Match "1 Cor 13:4-8", "John 3:16", "Romans 6:1-7", "Romans 8", "1co 13", "Ps 23", "Gen 1:1"
-  const m = s.match(/^([1-3]?\s*[A-Za-z]+(?:\s+of\s+[A-Za-z]+)?)\s*(\d+)(?:\s*[:.]\s*([0-9]+(?:\s*[-–,]\s*[0-9]+)*))?$/i);
+  // Optionally allows trailing version suffix: "John 3:16 ESV", "Rom 8 in NIV", "Ps 23 NASB"
+  const m = s.match(/^([1-3]?\s*[A-Za-z]+(?:\s+of\s+[A-Za-z]+)?)\s*(\d+)(?:\s*[:.]\s*([0-9]+(?:\s*[-–,]\s*[0-9]+)*))?(?:\s+(?:in\s+)?([A-Za-z0-9]+))?$/i);
   if (!m) return null;
   const rawBook = m[1].replace(/\s+/g, '').toLowerCase();
   const bookCode = BBE_BOOKS[rawBook];
   if (!bookCode) return null;
-  const cleanVerses = m[3] ? m[3].replace(/\s+/g, '').replace(/–/g, '-') : null;
+
+  let version = null;
+  if (m[4]) {
+    const candidate = m[4].toUpperCase();
+    if (bbeIdForSuffix(candidate)) {
+      version = candidate;
+    } else {
+      return null;
+    }
+  }
+
+  let chapter = m[2];
+  let cleanVerses = m[3] ? m[3].replace(/\s+/g, '').replace(/–/g, '-') : null;
+
+  // Single-chapter books (e.g. Jude, Philemon, Obadiah, 2 John, 3 John):
+  // "Jude 24" -> chapter 1, verse 24
+  if (BBE_BOOK_CHAPTER_COUNTS && BBE_BOOK_CHAPTER_COUNTS[bookCode] === 1 && !cleanVerses && chapter !== "1") {
+    cleanVerses = chapter;
+    chapter = "1";
+  }
+
   return {
     book: bookCode,
-    chapter: m[2],
-    verses: cleanVerses || null
+    chapter,
+    verses: cleanVerses || null,
+    version: version || null
   };
 }
 

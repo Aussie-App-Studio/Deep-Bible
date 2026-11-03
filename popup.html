@@ -1191,6 +1191,30 @@
             </div>
             <div class="version-pills" id="toolbarVersionPills"></div>
           </div>
+
+          <!-- Optional Power-User Tip: Browser Address Bar Search -->
+          <div class="card" style="padding:14px 18px;">
+            <details style="cursor:pointer;">
+              <summary style="font-weight:600;font-size:12.5px;color:var(--text-muted);user-select:none;display:flex;align-items:center;gap:6px;">
+                <span>💡 Power-User Tip: Address Bar Search Shortcut (Brave / Chrome)</span>
+              </summary>
+              <div style="margin-top:10px;font-size:12px;line-height:1.5;color:var(--text-secondary);cursor:default;">
+                <p style="margin:0 0 8px 0;">
+                  If you want to type <code>b &lt;scripture&gt;</code> (e.g. <code>b John 3:16</code>) directly in your browser's address bar to jump straight to Bible.com:
+                </p>
+                <ol style="margin:0 0 8px 0;padding-left:18px;">
+                  <li style="margin-bottom:4px;">Open browser settings to <strong>Site search</strong> (<code>brave://settings/searchEngines</code> or <code>chrome://settings/searchEngines</code>).</li>
+                  <li style="margin-bottom:4px;">Add a site search shortcut with:
+                    <div style="margin:6px 0;padding:8px 10px;background:var(--bg-subtle, rgba(0,0,0,0.03));border:1px solid var(--border);border-radius:6px;font-family:ui-monospace, monospace;font-size:11px;">
+                      Shortcut: <strong>b</strong><br>
+                      URL: <strong>https://www.bible.com/search/bible?q=%s</strong>
+                    </div>
+                  </li>
+                  <li>Deep Bible automatically intercepts scripture searches from that URL and instantly jumps straight to the reader in your active translation!</li>
+                </ol>
+              </div>
+            </details>
+          </div>
         </section>
 
         <!-- ================= 2. TYPOGRAPHY & THEMES ================= -->
