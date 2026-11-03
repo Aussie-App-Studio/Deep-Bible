@@ -3,9 +3,11 @@
   // Check for one-click first-install reset trigger via URL param (?bbe_reset=1 or #bbe_reset)
   if (location.search.includes("bbe_reset=1") || location.hash.includes("bbe_reset")) {
     try {
-      if (typeof chrome !== "undefined" && chrome.storage) {
-        if (chrome.storage.sync) await new Promise(r => chrome.storage.sync.clear(r));
-        if (chrome.storage.local) await new Promise(r => chrome.storage.local.clear(r));
+      if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage) {
+        try {
+          if (chrome.storage.sync) await new Promise(r => chrome.storage.sync.clear(() => { if (chrome.runtime?.lastError){} r(); }));
+          if (chrome.storage.local) await new Promise(r => chrome.storage.local.clear(() => { if (chrome.runtime?.lastError){} r(); }));
+        } catch (_) {}
       }
       try {
         for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -24,18 +26,27 @@
 
   // Inspect raw storage without defaults to check if schemaVersion: 3 was explicitly written
   const rawStorage = await new Promise(resolve => {
-    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.sync) {
-      chrome.storage.sync.get(null, resolve);
-    } else {
+    try {
+      if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage && chrome.storage.sync) {
+        chrome.storage.sync.get(null, (res) => {
+          if (chrome.runtime?.lastError) resolve({});
+          else resolve(res || {});
+        });
+      } else {
+        resolve({});
+      }
+    } catch (_) {
       resolve({});
     }
   });
 
   // If storage lacks schemaVersion 3, execute a complete wipe and enforce clean first-install defaults!
   if (!rawStorage || rawStorage.schemaVersion !== 3) {
-    if (typeof chrome !== "undefined" && chrome.storage) {
-      if (chrome.storage.sync) await new Promise(r => chrome.storage.sync.clear(r));
-      if (chrome.storage.local) await new Promise(r => chrome.storage.local.clear(r));
+    if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage) {
+      try {
+        if (chrome.storage.sync) await new Promise(r => chrome.storage.sync.clear(() => { if (chrome.runtime?.lastError){} r(); }));
+        if (chrome.storage.local) await new Promise(r => chrome.storage.local.clear(() => { if (chrome.runtime?.lastError){} r(); }));
+      } catch (_) {}
     }
     try {
       for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -5116,9 +5127,11 @@
       if (!confirm("Reset Deep Bible to original first-install state?\n\nThis will remove all user-customized settings, shortcuts, themes, and retired pills back to original factory defaults.")) {
         return;
       }
-      if (typeof chrome !== "undefined" && chrome.storage) {
-        if (chrome.storage.sync) await new Promise(r => chrome.storage.sync.clear(r));
-        if (chrome.storage.local) await new Promise(r => chrome.storage.local.clear(r));
+      if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage) {
+        try {
+          if (chrome.storage.sync) await new Promise(r => chrome.storage.sync.clear(() => { if (chrome.runtime?.lastError){} r(); }));
+          if (chrome.storage.local) await new Promise(r => chrome.storage.local.clear(() => { if (chrome.runtime?.lastError){} r(); }));
+        } catch (_) {}
       }
       try {
         for (let i = localStorage.length - 1; i >= 0; i--) {

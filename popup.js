@@ -1,17 +1,24 @@
 // Bible.com Enhancer — Options & Popup UI Logic
 (async function () {
   const rawStorage = await new Promise(r => {
-    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.sync) {
-      chrome.storage.sync.get(null, r);
-    } else {
+    try {
+      if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage && chrome.storage.sync) {
+        chrome.storage.sync.get(null, (res) => {
+          if (chrome.runtime?.lastError) r({});
+          else r(res || {});
+        });
+      } else {
+        r({});
+      }
+    } catch (_) {
       r({});
     }
   });
 
   if (!rawStorage || rawStorage.schemaVersion !== 3) {
     try {
-      if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.sync) {
-        await new Promise(r => chrome.storage.sync.clear(r));
+      if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage && chrome.storage.sync) {
+        await new Promise(r => chrome.storage.sync.clear(() => { if (chrome.runtime?.lastError){} r(); }));
       }
     } catch (e) {}
     const fresh = JSON.parse(JSON.stringify(BBE_DEFAULTS));
@@ -171,9 +178,11 @@
       if (!confirm("Are you sure you want to reset all Deep Bible settings to their original first-install defaults?")) {
         return;
       }
-      if (typeof chrome !== "undefined" && chrome.storage) {
-        if (chrome.storage.sync) await new Promise(r => chrome.storage.sync.clear(r));
-        if (chrome.storage.local) await new Promise(r => chrome.storage.local.clear(r));
+      if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage) {
+        try {
+          if (chrome.storage.sync) await new Promise(r => chrome.storage.sync.clear(() => { if (chrome.runtime?.lastError){} r(); }));
+          if (chrome.storage.local) await new Promise(r => chrome.storage.local.clear(() => { if (chrome.runtime?.lastError){} r(); }));
+        } catch (_) {}
       }
       try {
         for (let i = localStorage.length - 1; i >= 0; i--) {

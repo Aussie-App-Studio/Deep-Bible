@@ -74,9 +74,19 @@ var BBE_DEFAULTS = {
 
 function bbeLoad() {
   return new Promise((resolve) => {
-    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.sync) {
-      chrome.storage.sync.get(BBE_DEFAULTS, resolve);
-    } else {
+    try {
+      if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage?.sync) {
+        chrome.storage.sync.get(BBE_DEFAULTS, (res) => {
+          if (chrome.runtime?.lastError) {
+            resolve(BBE_DEFAULTS);
+          } else {
+            resolve(res || BBE_DEFAULTS);
+          }
+        });
+      } else {
+        resolve(BBE_DEFAULTS);
+      }
+    } catch (_) {
       resolve(BBE_DEFAULTS);
     }
   });
@@ -84,9 +94,18 @@ function bbeLoad() {
 
 function bbeSave(patch) {
   return new Promise((resolve) => {
-    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.sync) {
-      chrome.storage.sync.set(patch, resolve);
-    } else {
+    try {
+      if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage?.sync) {
+        chrome.storage.sync.set(patch, () => {
+          if (chrome.runtime?.lastError) {
+            // Context invalidated or quota exceeded
+          }
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    } catch (_) {
       resolve();
     }
   });

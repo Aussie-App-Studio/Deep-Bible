@@ -42,19 +42,22 @@
       }
     }
 
-    if (!targetId && typeof chrome !== "undefined" && chrome.storage && chrome.storage.sync) {
-      chrome.storage.sync.get(["toolbarVersions", "activeTranslation"], (data) => {
-        let vCode = "ESV";
-        if (data && data.activeTranslation) {
-          vCode = data.activeTranslation.toUpperCase();
-        } else if (data && Array.isArray(data.toolbarVersions) && data.toolbarVersions.length > 0) {
-          vCode = data.toolbarVersions[0].toUpperCase();
-        }
-        const vId = (typeof bbeIdForSuffix === "function" ? bbeIdForSuffix(vCode) : null) || 59;
-        const vPart = ref.verses ? `.${ref.verses}` : "";
-        location.replace(`/bible/${vId}/${ref.book}.${ref.chapter}${vPart}.${vCode}`);
-      });
-      return;
+    if (!targetId && typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage?.sync) {
+      try {
+        chrome.storage.sync.get(["toolbarVersions", "activeTranslation"], (data) => {
+          if (chrome.runtime?.lastError) return;
+          let vCode = "ESV";
+          if (data && data.activeTranslation) {
+            vCode = data.activeTranslation.toUpperCase();
+          } else if (data && Array.isArray(data.toolbarVersions) && data.toolbarVersions.length > 0) {
+            vCode = data.toolbarVersions[0].toUpperCase();
+          }
+          const vId = (typeof bbeIdForSuffix === "function" ? bbeIdForSuffix(vCode) : null) || 59;
+          const vPart = ref.verses ? `.${ref.verses}` : "";
+          location.replace(`/bible/${vId}/${ref.book}.${ref.chapter}${vPart}.${vCode}`);
+        });
+        return;
+      } catch (_) {}
     }
 
     if (!targetId) {
