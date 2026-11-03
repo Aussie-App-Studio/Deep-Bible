@@ -230,53 +230,60 @@ function bbeKeyForId(id, allVersions) {
 }
 
 function bbeParsePath(pathname, allVersions) {
-  const clean = pathname.replace(/^\/[a-z]{2}(?:-[A-Za-z]+)?\//i, '/');
-  const m = clean.match(/^\/bible\/(\d+)\/([0-9A-Z]{2,5})\.(\d+)(?:\.([0-9,\-]+))?(?:\.([A-Za-z0-9]+))?\/?$/i);
+  const clean = decodeURIComponent(pathname).replace(/^\/[a-z]{2}(?:-[A-Za-z]+)?\//i, '/');
+  const m = clean.match(/^\/bible\/(\d+)\/([0-9A-Z]{2,5})\.(\d+)(?:\.([0-9,\-–]+))?(?:\.([A-Za-z0-9\-]+))?\/?$/i);
   if (!m) return null;
   let [, id, book, chapter, p3, p4] = m;
-  
+
   let verses = null;
   let abbr = null;
   const pool = allVersions || BBE_VERSIONS;
   if (p4) {
-    verses = p3;
+    verses = p3 ? p3.replace(/–/g, "-") : null;
     abbr = p4;
   } else if (p3) {
     const s = p3.toUpperCase();
-    if (pool[s] || BBE_EXTRA_IDS[s] || BBE_ALIASES[s] || /^[A-Za-z0-9]+$/.test(p3)) {
+    if (/^[0-9,\-–]+$/.test(p3)) {
+      verses = p3.replace(/–/g, "-");
+    } else if (pool[s] || BBE_EXTRA_IDS[s] || BBE_ALIASES[s] || /[A-Za-z]/.test(p3)) {
       abbr = p3;
     } else {
-      verses = p3;
+      verses = p3.replace(/–/g, "-");
     }
   }
 
+  const numId = Number(id);
+  const resolvedAbbr = abbr ? abbr.toUpperCase() : bbeKeyForId(numId, pool);
+
   return {
-    id: Number(id),
+    id: numId,
     book: book.toUpperCase(),
     chapter,
     verses: verses || null,
-    abbr: abbr ? abbr.toUpperCase() : null
+    abbr: resolvedAbbr || null
   };
 }
 
 function bbeBuildPath(id, abbr, p) {
-  return `/bible/${id}/${p.book}.${p.chapter}${p.verses ? "." + p.verses : ""}.${abbr}`;
+  const verSuffix = abbr || p.abbr || bbeKeyForId(id);
+  return `/bible/${id}/${p.book}.${p.chapter}${p.verses ? "." + p.verses : ""}${verSuffix ? "." + verSuffix : ""}`;
 }
 
 // Parses user search query into either a direct scripture target or keyword search
 function bbeParseSearch(input) {
   if (!input) return null;
   const s = input.trim();
-  // Match "1 Cor 13:4-8", "John 3:16", "Romans 8", "1co 13", "Ps 23", "Gen 1:1"
-  const m = s.match(/^([1-3]?\s*[A-Za-z]+)\s*(\d+)(?:[:.](\d+(?:-\d+)?))?$/i);
+  // Match "1 Cor 13:4-8", "John 3:16", "Romans 6:1-7", "Romans 8", "1co 13", "Ps 23", "Gen 1:1"
+  const m = s.match(/^([1-3]?\s*[A-Za-z]+(?:\s+of\s+[A-Za-z]+)?)\s*(\d+)(?:\s*[:.]\s*([0-9]+(?:\s*[-–,]\s*[0-9]+)*))?$/i);
   if (!m) return null;
   const rawBook = m[1].replace(/\s+/g, '').toLowerCase();
   const bookCode = BBE_BOOKS[rawBook];
   if (!bookCode) return null;
+  const cleanVerses = m[3] ? m[3].replace(/\s+/g, '').replace(/–/g, '-') : null;
   return {
     book: bookCode,
     chapter: m[2],
-    verses: m[3] || null
+    verses: cleanVerses || null
   };
 }
 

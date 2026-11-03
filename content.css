@@ -176,7 +176,7 @@ html.bbe-on.bbe-hide-header [class*="min-h-toolbar"][class*="z-docked"] {
 }
 
 /* 3. Promotional Distraction Cards under Chapter (Videos, Popular Verses, etc.) */
-html.bbe-on.bbe-hide-cards [class*="mbe-24"] > div:last-child,
+html.bbe-on.bbe-hide-cards [class*="mbe-24"] > div:last-child:not(:first-child),
 html.bbe-on.bbe-hide-cards [class*="mbs-16"] {
   display: none !important;
 }
@@ -6964,4 +6964,240 @@ html.bbe-on.bbe-theme-sepia .bbe-verse-badge.bbe-verse-note-btn:hover {
   background: #b45309;
   border-color: #b45309;
   color: #ffffff;
+}
+
+/* ==========================================================================
+   Single Verse & Verse Range Reader View (e.g. Romans 6:1, Romans 6:1-7)
+   ========================================================================== */
+
+/* Hide Bible.com's native Verse Share Card & promotional blocks when in verse view */
+html.bbe-on.bbe-verse-view main > :not(#bbe-verse-page-reader) {
+  display: none !important;
+}
+
+#bbe-verse-page-reader {
+  display: none;
+  width: 100%;
+}
+
+html.bbe-on.bbe-verse-view #bbe-verse-page-reader {
+  display: block;
+}
+
+/* Base YouVersion ChapterReader typography & structural rules (ensures identical
+   formatting even when Bible.com does not load the chapter reader CSS chunk) */
+#bbe-verse-page-reader .cat7xG_yv-bible-text {
+  line-height: 1.5;
+}
+#bbe-verse-page-reader .cat7xG_reader h1 {
+  margin-top: 24px;
+  margin-bottom: 16px;
+}
+#bbe-verse-page-reader .cat7xG_chapter > .cat7xG_label {
+  display: none !important;
+}
+#bbe-verse-page-reader .cat7xG_p {
+  text-indent: 1em;
+  margin-bottom: 4px;
+}
+#bbe-verse-page-reader .cat7xG_m,
+#bbe-verse-page-reader .cat7xG_nb {
+  text-indent: 0;
+  margin-bottom: 4px;
+}
+#bbe-verse-page-reader .cat7xG_q1 {
+  padding-left: 2em;
+  text-indent: -1em;
+}
+#bbe-verse-page-reader .cat7xG_q2 {
+  padding-left: 2em;
+  text-indent: 0;
+}
+#bbe-verse-page-reader .cat7xG_q3 {
+  padding-left: 3em;
+  text-indent: 0;
+}
+#bbe-verse-page-reader .cat7xG_b {
+  height: 16px;
+}
+#bbe-verse-page-reader .cat7xG_s1,
+#bbe-verse-page-reader .cat7xG_s,
+#bbe-verse-page-reader .cat7xG_ms1,
+#bbe-verse-page-reader .cat7xG_ms {
+  text-indent: 0;
+  font-weight: 700;
+  font-style: italic;
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+#bbe-verse-page-reader .cat7xG_d {
+  text-indent: 0;
+  font-style: italic;
+  margin-top: 12px;
+  margin-bottom: 8px;
+}
+#bbe-verse-page-reader .cat7xG_verse > .cat7xG_label {
+  vertical-align: super;
+  font-size: 0.65em;
+  line-height: 1;
+  opacity: 0.72;
+  margin-right: 0.32em;
+  font-weight: 600;
+  user-select: none;
+}
+#bbe-verse-page-reader .cat7xG_nd {
+  font-variant: small-caps;
+}
+#bbe-verse-page-reader .cat7xG_wj {
+  color: #b91c1c;
+}
+html.dark #bbe-verse-page-reader .cat7xG_wj,
+html.bbe-on.bbe-theme-dark #bbe-verse-page-reader .cat7xG_wj,
+html.bbe-on.bbe-theme-oled #bbe-verse-page-reader .cat7xG_wj,
+html.bbe-on.bbe-theme-blue #bbe-verse-page-reader .cat7xG_wj {
+  color: #f87171;
+}
+#bbe-verse-page-reader .cat7xG_note {
+  display: inline-block;
+  vertical-align: super;
+  font-size: 0.65em;
+  line-height: 1;
+  opacity: 0.65;
+  margin: 0 2px;
+}
+#bbe-verse-page-reader .cat7xG_note .cat7xG_body {
+  display: none;
+}
+
+/* Read Full Chapter Action Bar below single verse / verse segment */
+.bbe-full-chapter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(148, 163, 184, 0.25);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.bbe-full-chapter-info {
+  font-size: 13px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.bbe-read-full-chapter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: 9999px;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-decoration: none !important;
+  color: #1e293b !important;
+  background: rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  cursor: pointer;
+  transition: transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.bbe-read-full-chapter-btn:hover {
+  background: rgba(15, 23, 42, 0.11);
+  border-color: rgba(15, 23, 42, 0.24);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+html.dark .bbe-full-chapter-bar,
+html.bbe-on.bbe-theme-dark .bbe-full-chapter-bar,
+html.bbe-on.bbe-theme-oled .bbe-full-chapter-bar,
+html.bbe-on.bbe-theme-blue .bbe-full-chapter-bar {
+  border-top-color: rgba(148, 163, 184, 0.2);
+}
+
+html.dark .bbe-full-chapter-info,
+html.bbe-on.bbe-theme-dark .bbe-full-chapter-info,
+html.bbe-on.bbe-theme-oled .bbe-full-chapter-info,
+html.bbe-on.bbe-theme-blue .bbe-full-chapter-info {
+  color: #94a3b8;
+}
+
+html.dark .bbe-read-full-chapter-btn,
+html.bbe-on.bbe-theme-dark .bbe-read-full-chapter-btn,
+html.bbe-on.bbe-theme-oled .bbe-read-full-chapter-btn,
+html.bbe-on.bbe-theme-blue .bbe-read-full-chapter-btn {
+  color: #f1f5f9 !important;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+html.dark .bbe-read-full-chapter-btn:hover,
+html.bbe-on.bbe-theme-dark .bbe-read-full-chapter-btn:hover,
+html.bbe-on.bbe-theme-oled .bbe-read-full-chapter-btn:hover,
+html.bbe-on.bbe-theme-blue .bbe-read-full-chapter-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+html.bbe-on.bbe-theme-sepia .bbe-full-chapter-bar,
+html.bbe-on.bbe-theme-historical .bbe-full-chapter-bar {
+  border-top-color: rgba(112, 82, 44, 0.28);
+}
+
+html.bbe-on.bbe-theme-sepia .bbe-full-chapter-info,
+html.bbe-on.bbe-theme-historical .bbe-full-chapter-info {
+  color: #6b5235;
+}
+
+html.bbe-on.bbe-theme-sepia .bbe-read-full-chapter-btn,
+html.bbe-on.bbe-theme-historical .bbe-read-full-chapter-btn {
+  color: #3d2c19 !important;
+  background: rgba(112, 82, 44, 0.1);
+  border-color: rgba(112, 82, 44, 0.28);
+}
+
+html.bbe-on.bbe-theme-sepia .bbe-read-full-chapter-btn:hover,
+html.bbe-on.bbe-theme-historical .bbe-read-full-chapter-btn:hover {
+  background: rgba(112, 82, 44, 0.18);
+  border-color: rgba(112, 82, 44, 0.42);
+}
+
+/* Floating chapter nav buttons inside #bbe-verse-page-reader */
+#bbe-verse-page-reader .bbe-verse-nav-dock {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#bbe-verse-page-reader .bbe-verse-nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  color: #1e293b;
+  text-decoration: none !important;
+}
+
+html.dark #bbe-verse-page-reader .bbe-verse-nav-btn,
+html.bbe-on.bbe-theme-dark #bbe-verse-page-reader .bbe-verse-nav-btn,
+html.bbe-on.bbe-theme-oled #bbe-verse-page-reader .bbe-verse-nav-btn,
+html.bbe-on.bbe-theme-blue #bbe-verse-page-reader .bbe-verse-nav-btn {
+  background: rgba(30, 41, 59, 0.9);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #f1f5f9;
+}
+
+html.bbe-on.bbe-theme-sepia #bbe-verse-page-reader .bbe-verse-nav-btn,
+html.bbe-on.bbe-theme-historical #bbe-verse-page-reader .bbe-verse-nav-btn {
+  background: rgba(244, 232, 206, 0.92);
+  border-color: rgba(112, 82, 44, 0.3);
+  color: #3d2c19;
 }

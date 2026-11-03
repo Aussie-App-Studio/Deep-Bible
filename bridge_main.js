@@ -163,21 +163,22 @@
     const { usfms, color } = e.detail || {};
     if (!usfms || !Array.isArray(usfms) || !usfms.length) return;
     const ctx = findChapterContext();
-    if (!ctx) return;
 
     const clean = color ? color.replace('#', '').toLowerCase() : null;
     const signedIn = isUserSignedIn();
 
-    if (!signedIn) {
-      // User is logged out: TEMPORARY HIGHLIGHTING ONLY
-      // Optimistically update React chapterHighlights state so it renders in the chapter
-      const existing = ctx.chapterHighlights || [];
-      const updated = existing.filter(h => !usfms.includes(h.usfm));
-      if (clean) {
-        usfms.forEach(u => updated.push({ color: clean, usfm: u }));
-      }
-      if (typeof ctx.setChapterHighlights === 'function') {
-        ctx.setChapterHighlights(updated);
+    if (!signedIn || !ctx) {
+      // User is logged out or on a verse-only view without native ChapterReader context:
+      // Optimistically update React chapterHighlights state if available
+      if (ctx) {
+        const existing = ctx.chapterHighlights || [];
+        const updated = existing.filter(h => !usfms.includes(h.usfm));
+        if (clean) {
+          usfms.forEach(u => updated.push({ color: clean, usfm: u }));
+        }
+        if (typeof ctx.setChapterHighlights === 'function') {
+          ctx.setChapterHighlights(updated);
+        }
       }
 
       // Also apply direct styling to matching verse DOM nodes for instant visual feedback
@@ -206,26 +207,28 @@
       });
 
       // Clear selection drawer so no native drawer or toast appears
-      if (typeof ctx.clearSelectedVerses === 'function') {
+      if (ctx && typeof ctx.clearSelectedVerses === 'function') {
         ctx.clearSelectedVerses();
       }
 
       syncHighlightsNow();
 
       window.dispatchEvent(new CustomEvent('BBE_CMD_HIGHLIGHT_DONE', {
-        detail: { usfms, color: clean, isTemporary: true }
+        detail: { usfms, color: clean, isTemporary: !signedIn }
       }));
 
-      // Fire prominent warning event for content script
-      window.dispatchEvent(new CustomEvent('BBE_AUTH_WARNING', {
-        detail: {
-          action: 'highlight',
-          isTemporary: true,
-          usfms,
-          color: clean,
-          message: 'You are not signed in to Bible.com. This highlight is temporary and will disappear when you reload or navigate away.'
-        }
-      }));
+      if (!signedIn) {
+        // Fire prominent warning event for content script
+        window.dispatchEvent(new CustomEvent('BBE_AUTH_WARNING', {
+          detail: {
+            action: 'highlight',
+            isTemporary: true,
+            usfms,
+            color: clean,
+            message: 'You are not signed in to Bible.com. This highlight is temporary and will disappear when you reload or navigate away.'
+          }
+        }));
+      }
       return;
     }
 

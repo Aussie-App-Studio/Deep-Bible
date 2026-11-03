@@ -47,7 +47,6 @@
     const freshDefaults = JSON.parse(JSON.stringify(BBE_DEFAULTS));
     freshDefaults.schemaVersion = 3;
     freshDefaults.showAaMenu = true;
-    freshDefaults.showWidthControls = true;
     freshDefaults.columnWidth = 950;
     freshDefaults.fontSize = 100;
     freshDefaults.fontFamily = "serif";
@@ -58,6 +57,7 @@
   let S = await bbeLoad();
   const html = document.documentElement;
   const chapterCache = new Map(); // "id|book.chapter" -> Promise<string>
+  const chapterMaxVerses = new Map(); // "BOOK.CHAPTER" -> number (e.g. "GAL.3" -> 29)
   let lastRenderKey = "";
   let lastPreloadedChapter = "";
 
@@ -363,12 +363,244 @@
     });
   }
 
-  /* ---------------- Fetching & Preloading Chapter Content ---------------- */
+  /* ---------------- Fetching, Verse-Segment Filtering & Preloading ---------------- */
+  function parseVerseRangeSpec(versesStr) {
+    if (!versesStr) return null;
+    const clean = String(versesStr).replace(/–/g, "-").trim();
+    if (!clean) return null;
+    const set = new Set();
+    const parts = clean.split(",");
+    for (const part of parts) {
+      const m = part.trim().match(/^(\d+)(?:-(\d+))?$/);
+      if (!m) continue;
+      const a = parseInt(m[1], 10);
+      const b = m[2] ? parseInt(m[2], 10) : a;
+      if (isNaN(a) || isNaN(b)) continue;
+      const start = Math.min(a, b);
+      const end = Math.max(a, b);
+      for (let v = start; v <= end && v <= start + 300; v++) {
+        set.add(v);
+      }
+    }
+    if (set.size === 0) return null;
+    const list = Array.from(set).sort((x, y) => x - y);
+    return {
+      raw: clean,
+      set,
+      list,
+      min: list[0],
+      max: list[list.length - 1],
+      isSingle: list.length === 1
+    };
+  }
+
+  function extractUsfmVerseNums(usfm) {
+    if (!usfm) return [];
+    const nums = [];
+    const tokens = String(usfm).split(/[+\s,]+/);
+    for (const tok of tokens) {
+      const m = tok.match(/\.(\d+)(?:-(\d+))?$/);
+      if (m) {
+        const a = parseInt(m[1], 10);
+        const b = m[2] ? parseInt(m[2], 10) : a;
+        if (!isNaN(a) && !isNaN(b)) {
+          const s = Math.min(a, b);
+          const e = Math.max(a, b);
+          for (let v = s; v <= e && v <= s + 50; v++) nums.push(v);
+        }
+      }
+    }
+    return nums;
+  }
+
+  function filterChapterNodeToVerses(chapterElOrHtml, p) {
+    const container = document.createElement("div");
+    if (typeof chapterElOrHtml === "string") {
+      container.innerHTML = chapterElOrHtml;
+    } else if (chapterElOrHtml) {
+      container.innerHTML = chapterElOrHtml.innerHTML;
+    }
+
+    // 1. Detect max verse in this chapter dynamically and cache it
+    const allVerses = Array.from(container.querySelectorAll('[class*="_verse"]'));
+    const chapterVerses = [];
+    for (const vEl of allVerses) {
+      const usfm = vEl.getAttribute("data-usfm") || "";
+      const vNums = extractUsfmVerseNums(usfm);
+      for (const n of vNums) chapterVerses.push(n);
+    }
+    const maxVerseInChapter = chapterVerses.length > 0 ? Math.max(...chapterVerses) : null;
+    if (maxVerseInChapter && p && p.book && p.chapter) {
+      chapterMaxVerses.set(`${p.book}.${p.chapter}`, maxVerseInChapter);
+    }
+
+    if (!p || !p.verses) {
+      return {
+        html: container.innerHTML,
+        clamped: false,
+        fallbackFullChapter: false,
+        clampedVerses: null,
+        maxVerse: maxVerseInChapter,
+        toString() { return this.html; }
+      };
+    }
+
+    const rawSpec = parseVerseRangeSpec(p.verses);
+    if (!rawSpec) {
+      return {
+        html: container.innerHTML,
+        clamped: false,
+        fallbackFullChapter: false,
+        clampedVerses: null,
+        maxVerse: maxVerseInChapter,
+        toString() { return this.html; }
+      };
+    }
+
+    let activeSpec = rawSpec;
+    let clamped = false;
+    let fallbackFullChapter = false;
+
+    if (maxVerseInChapter && maxVerseInChapter > 0) {
+      if (rawSpec.min > maxVerseInChapter || rawSpec.max < 1) {
+        // Starting verse is beyond what the chapter contains (e.g. Gal 3:35 when max is 29)
+        fallbackFullChapter = true;
+        clamped = true;
+      } else if (rawSpec.max > maxVerseInChapter) {
+        clamped = true;
+        // If starting at verse 1, capping at max means the full chapter (e.g. Gal 3:1-35 -> 1-29)
+        if (rawSpec.min === 1) {
+          fallbackFullChapter = true;
+        } else {
+          // Clamp upper bound to maxVerseInChapter (e.g. Gal 3:3-30 -> Gal 3:3-29)
+          const clampedList = rawSpec.list.filter(n => n <= maxVerseInChapter);
+          const newMax = maxVerseInChapter;
+          const newMin = rawSpec.min;
+          const newRaw = (newMin === newMax) ? String(newMin) : `${newMin}-${newMax}`;
+          activeSpec = {
+            raw: newRaw,
+            set: new Set(clampedList),
+            list: clampedList,
+            min: newMin,
+            max: newMax,
+            isSingle: newMin === newMax
+          };
+        }
+      }
+    }
+
+    if (fallbackFullChapter) {
+      return {
+        html: container.innerHTML,
+        clamped: true,
+        fallbackFullChapter: true,
+        clampedVerses: null,
+        maxVerse: maxVerseInChapter,
+        toString() { return this.html; }
+      };
+    }
+
+    // 2. Remove top-level chapter drop-cap label
+    container.querySelectorAll(':scope > [class*="_label"]').forEach(el => el.remove());
+
+    // 3. Determine which section headings precede a kept verse
+    const topChildren = Array.from(container.children);
+    for (let i = 0; i < topChildren.length; i++) {
+      const child = topChildren[i];
+      const hasVersesInside = !!child.querySelector('[class*="_verse"]');
+      if (!hasVersesInside) {
+        // Check if this is a blank line break (.cat7xG_b) or a section heading (.cat7xG_s1, .cat7xG_d, etc.)
+        const cls = child.className || "";
+        if (/(?:^|\s)[^\s]*_b(?:\s|$)/.test(cls)) {
+          continue; // Handled in step 5 after verses are filtered
+        }
+        // Find the first non-empty verse in subsequent top-level blocks
+        let nextVerseNum = null;
+        for (let j = i + 1; j < topChildren.length; j++) {
+          const vEls = topChildren[j].querySelectorAll('[class*="_verse"][data-usfm]');
+          for (const vEl of vEls) {
+            if (vEl.textContent && vEl.textContent.trim()) {
+              const vNums = extractUsfmVerseNums(vEl.getAttribute("data-usfm"));
+              if (vNums.length > 0) {
+                nextVerseNum = vNums[0];
+                break;
+              }
+            }
+          }
+          if (nextVerseNum !== null) break;
+        }
+        if (nextVerseNum === null || !activeSpec.set.has(nextVerseNum)) {
+          child.remove();
+        }
+      }
+    }
+
+    // 4. Remove all verse spans whose USFM verse numbers are not in activeSpec.set
+    for (const vEl of allVerses) {
+      const usfm = vEl.getAttribute("data-usfm") || "";
+      const vNums = extractUsfmVerseNums(usfm);
+      const keep = vNums.some(n => activeSpec.set.has(n));
+      if (!keep) {
+        vEl.remove();
+      }
+    }
+
+    // 5. Remove empty verse spans (whitespace-only placeholders) and empty block containers
+    for (const block of Array.from(container.children)) {
+      const versesInBlock = Array.from(block.querySelectorAll('[class*="_verse"]'));
+      if (versesInBlock.length > 0) {
+        const hasRealText = versesInBlock.some(v => v.textContent && v.textContent.trim().length > 0);
+        if (!hasRealText) {
+          block.remove();
+        }
+      }
+    }
+
+    // Clean up leading/trailing poetic blank spacer blocks (_b)
+    const remainingBlocks = Array.from(container.children);
+    for (let i = 0; i < remainingBlocks.length; i++) {
+      const b = remainingBlocks[i];
+      if (/(?:^|\s)[^\s]*_b(?:\s|$)/.test(b.className || "")) {
+        const prevHasVerse = i > 0 && remainingBlocks[i - 1].querySelector('[class*="_verse"]');
+        const nextHasVerse = i < remainingBlocks.length - 1 && remainingBlocks[i + 1].querySelector('[class*="_verse"]');
+        if (!prevHasVerse || !nextHasVerse) {
+          b.remove();
+        }
+      }
+    }
+
+    return {
+      html: container.innerHTML,
+      clamped,
+      fallbackFullChapter: false,
+      clampedVerses: clamped ? activeSpec.raw : p.verses,
+      maxVerse: maxVerseInChapter,
+      toString() { return this.html; }
+    };
+  }
+
+  function ensureReaderChunkStyles(doc) {
+    if (!doc || !document.head) return;
+    try {
+      const links = doc.querySelectorAll('link[rel="stylesheet"][href*="/_next/static/chunks/"]');
+      links.forEach(l => {
+        const href = l.getAttribute("href");
+        if (href && !document.head.querySelector(`link[href="${href}"]`)) {
+          const clone = document.createElement("link");
+          clone.rel = "stylesheet";
+          clone.href = href;
+          document.head.appendChild(clone);
+        }
+      });
+    } catch (e) {}
+  }
+
   function extractChapterNode(htmlOrDoc) {
     const doc = typeof htmlOrDoc === "string"
       ? new DOMParser().parseFromString(htmlOrDoc, "text/html")
       : htmlOrDoc;
     if (!doc) return null;
+    ensureReaderChunkStyles(doc);
     const chapter = doc.querySelector('[class*="_chapter"]');
     if (!chapter) return null;
 
@@ -388,11 +620,12 @@
 
   function fetchChapter(versionKey, p) {
     const allVers = getAllVersions();
-    const v = allVers[versionKey];
+    const v = allVers[versionKey] || (p && p.id ? { id: p.id, name: versionKey, short: versionKey } : null);
     if (!v) return Promise.reject(new Error("Unknown version " + versionKey));
     const cacheKey = `${v.id}|${p.book}.${p.chapter}`;
     if (!chapterCache.has(cacheKey)) {
-      const url = `/bible/${v.id}/${p.book}.${p.chapter}.${versionKey}`;
+      const suffix = versionKey ? `.${versionKey}` : "";
+      const url = `/bible/${v.id}/${p.book}.${p.chapter}${suffix}`;
       const promise = fetch(url, { credentials: "same-origin" })
         .then(res => {
           if (!res.ok) throw new Error("HTTP " + res.status);
@@ -418,6 +651,309 @@
     return chapterCache.get(cacheKey);
   }
 
+  function fetchPassageHtml(versionKey, p) {
+    return fetchChapter(versionKey, p).then(fullHtml => {
+      if (p && p.verses) {
+        return filterChapterNodeToVerses(fullHtml, p);
+      }
+      return fullHtml;
+    });
+  }
+
+  function getAdjacentChapterHrefs(p) {
+    if (!p || !p.book || !p.chapter || typeof BBE_BOOK_CHAPTER_COUNTS === "undefined") {
+      return { prevHref: null, nextHref: null };
+    }
+    const books = Object.keys(BBE_BOOK_CHAPTER_COUNTS);
+    const idx = books.indexOf(p.book);
+    const chapNum = parseInt(p.chapter, 10);
+    const maxChap = BBE_BOOK_CHAPTER_COUNTS[p.book] || 1;
+    const allVers = getAllVersions();
+    const verKey = bbeKeyForId(p.id, allVers) || p.abbr || "";
+    const verSuffix = verKey ? `.${verKey}` : "";
+
+    let prevHref = null;
+    if (chapNum > 1) {
+      prevHref = `/bible/${p.id}/${p.book}.${chapNum - 1}${verSuffix}`;
+    } else if (idx > 0) {
+      const prevBook = books[idx - 1];
+      const prevMax = BBE_BOOK_CHAPTER_COUNTS[prevBook] || 1;
+      prevHref = `/bible/${p.id}/${prevBook}.${prevMax}${verSuffix}`;
+    }
+
+    let nextHref = null;
+    if (chapNum < maxChap) {
+      nextHref = `/bible/${p.id}/${p.book}.${chapNum + 1}${verSuffix}`;
+    } else if (idx >= 0 && idx < books.length - 1) {
+      const nextBook = books[idx + 1];
+      nextHref = `/bible/${p.id}/${nextBook}.1${verSuffix}`;
+    }
+
+    return { prevHref, nextHref };
+  }
+
+  async function transitionPassageInPlace(targetP, activeKey) {
+    const allVers = getAllVersions();
+    const verKey = activeKey || bbeKeyForId(targetP.id, allVers) || targetP.abbr || "ESV";
+    const v = allVers[verKey] || { id: targetP.id, short: verKey };
+    const curChapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const newPath = bbeBuildPath(v.id, verKey, targetP);
+    if (!curChapterEl) {
+      location.href = newPath;
+      return;
+    }
+
+    try {
+      const res = await fetchPassageHtml(verKey, targetP);
+      const newHtml = (res && typeof res.html === "string") ? res.html : String(res);
+      if (res && res.clamped) {
+        if (res.fallbackFullChapter) targetP.verses = null;
+        else if (res.clampedVerses) targetP.verses = res.clampedVerses;
+      }
+      await applyChapterTransition(curChapterEl, newHtml, null);
+
+      const targetPassageKey = `${v.id}|${targetP.book}.${targetP.chapter}|${targetP.verses || "FULL"}`;
+      curChapterEl.dataset.bbePassageKey = targetPassageKey;
+      curChapterEl.dataset.bbeFiltered = targetP.verses ? "1" : "";
+      curChapterEl.setAttribute("data-usfm", `${targetP.book}.${targetP.chapter}`);
+
+      const bookTitle = BBE_BOOK_NAMES[targetP.book] || targetP.book;
+      const headingText = targetP.verses
+        ? `${bookTitle} ${targetP.chapter}:${targetP.verses}`
+        : `${bookTitle} ${targetP.chapter}`;
+      const readerH1 = document.querySelector('[class*="_reader"] h1') || document.querySelector("#bbe-verse-reader-h1");
+      if (readerH1) readerH1.textContent = headingText;
+
+      const finalPath = bbeBuildPath(v.id, verKey, targetP);
+      history.pushState({ bbePassageSwapped: true }, "", finalPath + location.search + location.hash);
+      document.title = `${headingText} | ${verKey} Bible | YouVersion`;
+
+      lastRenderKey = "";
+      tick();
+    } catch (err) {
+      location.href = newPath;
+    }
+  }
+
+  function ensureVersePageReader(p) {
+    if (!S.enabled || !p || !document.body) {
+      html.classList.remove("bbe-verse-view");
+      return;
+    }
+
+    const nativeReader = document.querySelector('[class*="_yv-bible-text"]:not(#bbe-verse-page-reader *)');
+    const allVers = getAllVersions();
+    const activeKey = bbeKeyForId(p.id, allVers) || p.abbr || "ESV";
+    const bookTitle = BBE_BOOK_NAMES[p.book] || p.book;
+    const headingText = p.verses ? `${bookTitle} ${p.chapter}:${p.verses}` : `${bookTitle} ${p.chapter}`;
+
+    if (!nativeReader) {
+      html.classList.add("bbe-verse-view");
+      const mainEl = document.querySelector("main") || document.body;
+      let wrapper = document.getElementById("bbe-verse-page-reader");
+      if (!wrapper) {
+        wrapper = document.createElement("div");
+        wrapper.id = "bbe-verse-page-reader";
+        wrapper.innerHTML = `
+          <div class="relative mbe-24 w-full">
+            <div class="relative w-full">
+              <div class="px-6 md:px-10">
+                <div class="mx-auto w-full max-w-[600px]">
+                  <div class="cat7xG_yv-bible-text" data-testid="chapter-content" lang="en">
+                    <div class="cat7xG_bible-reader" dir="ltr">
+                      <div class="cat7xG_reader" style="font-family:Source Serif Pro;font-size:20px">
+                        <h1 class="font-bold text-31 md:text-39 leading-[1.15] tracking-[-0.004em]" id="bbe-verse-reader-h1"></h1>
+                        <div>
+                          <div class="version vid${p.id} iso6393eng" data-vid="${p.id}" data-iso6393="eng" id="bbe-verse-reader-version">
+                            <div class="cat7xG_book">
+                              <div class="cat7xG_chapter" data-usfm="${p.book}.${p.chapter}"></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="bbe-full-chapter-bar" id="bbe-full-chapter-bar" style="display:none;"></div>
+                </div>
+              </div>
+              <div class="sticky z-docked bbe-verse-nav-dock" id="bbe-verse-nav-dock">
+                <div>
+                  <a aria-label="Previous Chapter" class="bbe-verse-nav-btn" id="bbe-verse-prev-link" href="#">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                  </a>
+                </div>
+                <div>
+                  <a aria-label="Next Chapter" class="bbe-verse-nav-btn" id="bbe-verse-next-link" href="#">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        mainEl.prepend(wrapper);
+      }
+
+      const h1El = wrapper.querySelector("#bbe-verse-reader-h1");
+      if (h1El && h1El.textContent !== headingText) {
+        h1El.textContent = headingText;
+      }
+
+      const verEl = wrapper.querySelector("#bbe-verse-reader-version");
+      if (verEl) {
+        verEl.className = `version vid${p.id} iso6393eng`;
+        verEl.setAttribute("data-vid", String(p.id));
+      }
+
+      const chapEl = wrapper.querySelector(".cat7xG_chapter");
+      if (chapEl) {
+        chapEl.setAttribute("data-usfm", `${p.book}.${p.chapter}`);
+      }
+
+      // Update Prev / Next Chapter links
+      const { prevHref, nextHref } = getAdjacentChapterHrefs(p);
+      const prevLink = wrapper.querySelector("#bbe-verse-prev-link");
+      const nextLink = wrapper.querySelector("#bbe-verse-next-link");
+      if (prevLink) {
+        if (prevHref) {
+          prevLink.setAttribute("href", prevHref);
+          prevLink.style.visibility = "visible";
+        } else {
+          prevLink.removeAttribute("href");
+          prevLink.style.visibility = "hidden";
+        }
+      }
+      if (nextLink) {
+        if (nextHref) {
+          nextLink.setAttribute("href", nextHref);
+          nextLink.style.visibility = "visible";
+        } else {
+          nextLink.removeAttribute("href");
+          nextLink.style.visibility = "hidden";
+        }
+      }
+
+      // Seed immediate fallback text from Bible.com's native verse card <p> while full chapter fetch is in-flight
+      if (chapEl && !chapEl.innerHTML.trim()) {
+        const nativeP = Array.from(mainEl.querySelectorAll(':scope > :not(#bbe-verse-page-reader) p'))
+          .find(el => el.textContent && el.textContent.trim().length > 10 && !el.closest('a'));
+        if (nativeP && !nativeP.textContent.includes("No Available Verses")) {
+          const spec = parseVerseRangeSpec(p.verses);
+          const firstV = spec ? spec.min : 1;
+          const vLabel = p.verses || String(firstV);
+          chapEl.innerHTML = `<div class="cat7xG_p"><span class="cat7xG_verse" data-usfm="${p.book}.${p.chapter}.${firstV}"><span class="cat7xG_label">${bbeEscapeHtml(vLabel)}</span><span class="cat7xG_content">${bbeEscapeHtml(nativeP.textContent.trim())}</span></span></div>`;
+        }
+      }
+    } else {
+      html.classList.remove("bbe-verse-view");
+      const readerH1 = nativeReader.querySelector('[class*="_reader"] h1');
+      if (readerH1 && readerH1.textContent !== headingText) {
+        readerH1.textContent = headingText;
+      }
+    }
+
+    // Ensure "Read Full Chapter" action bar below the reader when viewing a single verse or segment
+    const activeReader = nativeReader || document.querySelector('#bbe-verse-page-reader [class*="_yv-bible-text"]');
+    if (activeReader && activeReader.parentElement) {
+      let fullChapBar = document.getElementById("bbe-full-chapter-bar");
+      if (!fullChapBar) {
+        fullChapBar = document.createElement("div");
+        fullChapBar.id = "bbe-full-chapter-bar";
+        fullChapBar.className = "bbe-full-chapter-bar";
+        activeReader.insertAdjacentElement("afterend", fullChapBar);
+      }
+      if (p.verses) {
+        const fullUrl = `/bible/${p.id}/${p.book}.${p.chapter}.${activeKey}`;
+        const barKey = `${p.id}|${p.book}.${p.chapter}|${p.verses}|${activeKey}`;
+        fullChapBar.style.display = "flex";
+        if (fullChapBar.dataset.bbeBarKey !== barKey) {
+          fullChapBar.dataset.bbeBarKey = barKey;
+          fullChapBar.innerHTML = `
+            <span class="bbe-full-chapter-info">Showing segment <b>${bbeEscapeHtml(headingText)}</b></span>
+            <a href="${fullUrl}" class="bbe-read-full-chapter-btn" id="bbe-read-full-chapter-btn" title="View all of ${bbeEscapeHtml(bookTitle)} ${p.chapter}">
+              <span>📖</span>
+              <span>Read Full Chapter (${bbeEscapeHtml(bookTitle)} ${p.chapter})</span>
+            </a>
+          `;
+          fullChapBar.querySelector("#bbe-read-full-chapter-btn")?.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const fullP = { ...p, verses: null };
+            transitionPassageInPlace(fullP, activeKey);
+          });
+        }
+      } else {
+        fullChapBar.style.display = "none";
+      }
+    }
+
+    // Populate or filter the .cat7xG_chapter DOM if needed
+    const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    if (chapterEl) {
+      const targetPassageKey = `${p.id}|${p.book}.${p.chapter}|${p.verses || "FULL"}`;
+      const needsFetch = (!nativeReader || p.verses || chapterEl.dataset.bbeFiltered === "1") &&
+                         chapterEl.dataset.bbePassageKey !== targetPassageKey &&
+                         chapterEl.dataset.bbeLoadingKey !== targetPassageKey;
+      if (needsFetch) {
+        chapterEl.dataset.bbeLoadingKey = targetPassageKey;
+        fetchPassageHtml(activeKey, p)
+          .then(res => {
+            const curP = bbeParsePath(location.pathname, getAllVersions());
+            if (!curP) return;
+            const htmlStr = (res && typeof res.html === "string") ? res.html : String(res);
+
+            // Handle verse-range overshoot: clamp upper bound or fall back to full chapter
+            if (res && res.clamped) {
+              if (res.fallbackFullChapter) {
+                curP.verses = null;
+                p.verses = null;
+                const cleanUrl = `/bible/${p.id}/${p.book}.${p.chapter}.${activeKey}`;
+                history.replaceState({ bbeNormalized: true }, "", cleanUrl + location.search + location.hash);
+              } else if (res.clampedVerses) {
+                curP.verses = res.clampedVerses;
+                p.verses = res.clampedVerses;
+                const clampedUrl = `/bible/${p.id}/${p.book}.${p.chapter}.${p.verses}.${activeKey}`;
+                history.replaceState({ bbeNormalized: true }, "", clampedUrl + location.search + location.hash);
+              }
+
+              const newHeading = p.verses ? `${bookTitle} ${p.chapter}:${p.verses}` : `${bookTitle} ${p.chapter}`;
+              const rH1 = document.querySelector('[class*="_reader"] h1') || document.querySelector("#bbe-verse-reader-h1");
+              if (rH1) rH1.textContent = newHeading;
+              const sInput = document.querySelector(".bbe-search-input");
+              if (sInput && document.activeElement !== sInput) {
+                sInput.value = newHeading;
+              }
+              document.title = `${newHeading} | ${activeKey} Bible | YouVersion`;
+
+              const fullChapBar = document.getElementById("bbe-full-chapter-bar");
+              if (fullChapBar) {
+                if (p.verses) {
+                  fullChapBar.style.display = "flex";
+                  const barInfo = fullChapBar.querySelector(".bbe-full-chapter-info");
+                  if (barInfo) barInfo.innerHTML = `Showing segment <b>${bbeEscapeHtml(newHeading)}</b>`;
+                } else {
+                  fullChapBar.style.display = "none";
+                }
+              }
+            }
+
+            const curTargetKey = `${curP.id}|${curP.book}.${curP.chapter}|${curP.verses || "FULL"}`;
+            chapterEl.innerHTML = htmlStr;
+            chapterEl.dataset.bbePassageKey = curTargetKey;
+            chapterEl.dataset.bbeFiltered = curP.verses ? "1" : "";
+            delete chapterEl.dataset.bbeLoadingKey;
+            renderVerseBadges(curP, true);
+            if (S.wordStudyMode) enhanceVersesForWordStudy(curP);
+            if (S.compareOn) renderCompare(curP);
+            syncDomClasses();
+          })
+          .catch(() => {
+            delete chapterEl.dataset.bbeLoadingKey;
+          });
+      }
+    }
+  }
+
   // Preloads core translations intelligently with a 3s idle delay and staggered queue
   let preloadTimer = null;
   let preloadQueueTimeouts = [];
@@ -440,7 +976,7 @@
     const allVers = getAllVersions();
     const curKey = bbeKeyForId(p.id, allVers) || p.abbr;
     const curChapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
-    if (curChapterEl && curKey) {
+    if (curChapterEl && curKey && !p.verses && !curChapterEl.dataset.bbeFiltered) {
       const curCacheKey = `${p.id}|${chapKey}`;
       if (!chapterCache.has(curCacheKey)) {
         chapterCache.set(curCacheKey, Promise.resolve(curChapterEl.innerHTML));
@@ -624,7 +1160,12 @@
 
     try {
       const activeVerse = findActiveVerse();
-      const newHtml = await fetchChapter(targetKey, p);
+      const res = await fetchPassageHtml(targetKey, p);
+      const newHtml = (res && typeof res.html === "string") ? res.html : String(res);
+      if (res && res.clamped) {
+        if (res.fallbackFullChapter) p.verses = null;
+        else if (res.clampedVerses) p.verses = res.clampedVerses;
+      }
       await applyChapterTransition(curChapterEl, newHtml, activeVerse);
 
       // Update URL and document title without full page reload
@@ -634,7 +1175,10 @@
 
       p.id = v.id;
       p.abbr = targetKey;
+      curChapterEl.dataset.bbePassageKey = `${v.id}|${p.book}.${p.chapter}|${p.verses || "FULL"}`;
+      curChapterEl.dataset.bbeFiltered = p.verses ? "1" : "";
       lastRenderKey = "";
+      ensureVersePageReader(p);
       renderVerseBadges(p, true);
       renderToolbar(p);
     } catch (err) {
@@ -806,6 +1350,13 @@
       history.pushState({ bbeChapterSwapped: true, url: targetUrl }, "", targetUrl);
       if (data.title) {
         document.title = data.title;
+      }
+
+      const nextP = bbeParsePath(targetUrl, getAllVersions());
+      if (nextP) {
+        curChapterEl.dataset.bbePassageKey = `${nextP.id}|${nextP.book}.${nextP.chapter}|${nextP.verses || "FULL"}`;
+        curChapterEl.dataset.bbeFiltered = nextP.verses ? "1" : "";
+        curChapterEl.setAttribute("data-usfm", `${nextP.book}.${nextP.chapter}`);
       }
 
       // Update native floating buttons' hrefs
@@ -2217,7 +2768,7 @@
     const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
     if (!chapterEl) return;
 
-    const chapKey = `${p.book}.${p.chapter}.${p.id || p.abbr}`;
+    const chapKey = `${p.book}.${p.chapter}.${p.verses || "FULL"}.${p.id || p.abbr}`;
     if (!force && chapterEl.dataset.bbeBound === chapKey) {
       return;
     }
@@ -2905,7 +3456,8 @@
         if (isDrawerOpen) {
           closeCommentaryDrawer();
         } else {
-          openCommentaryDrawer(p.book, p.chapter, 1);
+          const firstVerse = (p.verses && parseVerseRangeSpec(p.verses)?.min) || 1;
+          openCommentaryDrawer(p.book, p.chapter, firstVerse);
         }
       }
       return;
@@ -2978,6 +3530,35 @@
     const ver = allVers[activeKey] || allVers.NIV || BBE_VERSIONS.NIV;
 
     if (ref) {
+      // Pre-check if this chapter's max verse count is already known
+      const chapKey = `${ref.book}.${ref.chapter}`;
+      if (chapterMaxVerses.has(chapKey)) {
+        const maxV = chapterMaxVerses.get(chapKey);
+        const spec = parseVerseRangeSpec(ref.verses);
+        if (spec && maxV && maxV > 0) {
+          if (spec.min > maxV || spec.max < 1) {
+            // Out of bounds -> fallback to clean full chapter
+            ref.verses = null;
+          } else if (spec.max > maxV) {
+            if (spec.min === 1) {
+              ref.verses = null; // 1 to max is the entire chapter
+            } else {
+              ref.verses = `${spec.min}-${maxV}`;
+            }
+          }
+        }
+      }
+
+      if (p && ref.book === p.book && String(ref.chapter) === String(p.chapter) && ver.id === p.id) {
+        transitionPassageInPlace({
+          id: ver.id,
+          book: ref.book,
+          chapter: String(ref.chapter),
+          verses: ref.verses || null,
+          abbr: activeKey
+        }, activeKey);
+        return;
+      }
       // Direct jump to scripture reference
       const path = `/bible/${ver.id}/${ref.book}.${ref.chapter}${ref.verses ? "." + ref.verses : ""}.${activeKey}`;
       location.href = path;
@@ -3196,7 +3777,7 @@
     searchIcon.className = "bbe-search-icon";
     searchIcon.textContent = "🔍";
 
-    const currentPassageTitle = `${bookTitle} ${p.chapter}`;
+    const currentPassageTitle = p.verses ? `${bookTitle} ${p.chapter}:${p.verses}` : `${bookTitle} ${p.chapter}`;
 
     const searchInput = document.createElement("input");
     searchInput.type = "text";
@@ -3471,7 +4052,8 @@
         if (isDrawerOpen) {
           closeCommentaryDrawer();
         } else {
-          openCommentaryDrawer(p.book, p.chapter, 1);
+          const firstVerse = (p.verses && parseVerseRangeSpec(p.verses)?.min) || 1;
+          openCommentaryDrawer(p.book, p.chapter, firstVerse);
         }
       },
       isDrawerOpen,
@@ -3498,117 +4080,8 @@
     sep1.className = "bbe-sep";
     rightSec.appendChild(sep1);
 
-    // Width Resizer Hover-Expandable Pill & Popover (750, 950, 1200, Max + Retire to Settings)
-    if (S.showWidthControls !== false) {
-      const curWidth = S.columnWidth || 950;
-      let activeLabel = "950";
-      if (Math.abs(curWidth - 750) < 40) activeLabel = "750";
-      else if (Math.abs(curWidth - 950) < 40) activeLabel = "950";
-      else if (Math.abs(curWidth - 1200) < 40) activeLabel = "1200";
-      else if (Math.abs(curWidth - 1800) < 40) activeLabel = "Max";
-      else activeLabel = curWidth + "px";
-
-      const widthWrap = document.createElement("div");
-      widthWrap.className = "bbe-width-wrap";
-
-      const widthBtn = document.createElement("button");
-      widthBtn.type = "button";
-      widthBtn.className = "bbe-btn bbe-btn-sm bbe-width-btn";
-      widthBtn.title = `Reading column width: ${curWidth}px (hover to change or retire)`;
-      widthBtn.innerHTML = `<span class="bbe-width-icon">↔</span><span class="bbe-width-label">${activeLabel}</span><span class="bbe-width-caret">▾</span>`;
-
-      const widthPop = document.createElement("div");
-      widthPop.className = "bbe-width-popover";
-      widthPop.innerHTML = `
-        <div class="bbe-popover-title">
-          <span>Column Width</span>
-          <span class="bbe-width-pop-val">${activeLabel === "Max" ? "Max (1800px)" : curWidth + "px"}</span>
-        </div>
-        <div class="bbe-width-presets-row"></div>
-        <div class="bbe-popover-footer" style="padding-top:2px;">
-          <button type="button" class="bbe-popover-link-btn bbe-retire-width-btn" id="bbe-retire-width-btn" title="Permanently retire width resizer to extension settings and remove it from the main pill">
-            ⚙ Retire to Settings
-          </button>
-        </div>
-      `;
-
-      const presetsRow = widthPop.querySelector(".bbe-width-presets-row");
-      const widths = [
-        { label: "750", val: 750, title: "750px — Standard readable column" },
-        { label: "950", val: 950, title: "950px — Optimal comfortable reading" },
-        { label: "1200", val: 1200, title: "1200px — Wide widescreen view" },
-        { label: "Max", val: 1800, title: "Max (1800px) — Full viewport span" }
-      ];
-
-      widths.forEach(w => {
-        const isW = Math.abs(curWidth - w.val) < 40;
-        const chip = document.createElement("button");
-        chip.type = "button";
-        chip.className = "bbe-popover-pill" + (isW ? " active" : "");
-        chip.textContent = w.label;
-        chip.title = w.title;
-
-        chip.addEventListener("click", async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          S.columnWidth = w.val;
-          syncDomClasses();
-          await bbeSave({ columnWidth: w.val });
-          showToast(`Column Width: ${w.label === "Max" ? "Max (1800px)" : w.val + "px"}`);
-          widthPop.classList.remove("open");
-          lastRenderKey = "";
-          renderToolbar(p);
-        });
-
-        presetsRow.appendChild(chip);
-      });
-
-      const retireBtn = widthPop.querySelector("#bbe-retire-width-btn");
-      if (retireBtn) {
-        retireBtn.addEventListener("click", async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          S.showWidthControls = false;
-          await bbeSave({ showWidthControls: false });
-          showToast("Width resizer retired. Restore anytime in Settings (⚙) > Floating Toolbar or Typography.");
-          widthPop.classList.remove("open");
-          lastRenderKey = "";
-          renderToolbar(p);
-        });
-      }
-
-      // Smooth hover with grace period to prevent flickering
-      let widthCloseTimer = null;
-      widthWrap.addEventListener("mouseenter", () => {
-        clearTimeout(widthCloseTimer);
-        widthPop.classList.add("open");
-      });
-      widthWrap.addEventListener("mouseleave", () => {
-        clearTimeout(widthCloseTimer);
-        widthCloseTimer = setTimeout(() => {
-          widthPop.classList.remove("open");
-        }, 160);
-      });
-
-      widthBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        widthPop.classList.toggle("open");
-      });
-
-      widthWrap.appendChild(widthBtn);
-      widthWrap.appendChild(widthPop);
-      rightSec.appendChild(widthWrap);
-    }
-
-    // Unified Aa Reader Menu (Appearance: Text Size, Font Family, Theme Swatches + Retire to Settings)
+    // Unified Aa Reader Menu (Appearance: Column Width, Text Size, Font Family, Theme Swatches + Retire to Settings)
     if (S.showAaMenu !== false) {
-      if (S.showWidthControls !== false) {
-        const sepWidthAa = document.createElement("span");
-        sepWidthAa.className = "bbe-sep";
-        rightSec.appendChild(sepWidthAa);
-      }
-
       const curFont = S.fontFamily || "serif";
       const curTheme = S.readerTheme || "system";
       const curFontSize = S.fontSize || 100;
@@ -3731,9 +4204,8 @@
           chip.classList.add("active");
           const lbl = targetWidth === 1800 ? "Max (1800px)" : targetWidth + "px";
           if (widthValEl) widthValEl.textContent = lbl;
+          aaBtn.title = `Reader Appearance: ${lbl} • ${prettyFonts[S.fontFamily || "serif"] || S.fontFamily} • ${prettyThemes[S.readerTheme || "system"] || S.readerTheme} (${S.fontSize || 100}%) (hover to customize)`;
           showToast(`Column Width: ${lbl}`);
-          lastRenderKey = "";
-          renderToolbar(p);
         });
       });
 
@@ -3840,9 +4312,7 @@
       aaWrap.appendChild(aaBtn);
       aaWrap.appendChild(aaPop);
       rightSec.appendChild(aaWrap);
-    }
 
-    if (S.showWidthControls !== false || S.showAaMenu !== false) {
       const sepEnd = document.createElement("span");
       sepEnd.className = "bbe-sep";
       rightSec.appendChild(sepEnd);
@@ -4235,14 +4705,15 @@
       colsGrid.appendChild(col);
 
       // Render content
-      if (v.id === p.id && origChapter) {
+      if (v.id === p.id && origChapter && (!p.verses || origChapter.dataset.bbeFiltered === "1")) {
         body.replaceChildren(origChapter.cloneNode(true));
         const cloned = body.querySelector('[class*="_chapter"]');
         if (cloned) cloned.style.display = "";
       } else {
-        fetchChapter(key, p)
+        fetchPassageHtml(key, p)
           .then((chapterHtml) => {
             const temp = document.createElement("div");
+            temp.className = "cat7xG_chapter";
             temp.innerHTML = chapterHtml;
             body.replaceChildren(temp);
           })
@@ -4331,9 +4802,10 @@
       const results = await Promise.all(promises);
       const verseMaps = Object.fromEntries(results.map(r => [r.key, r.map]));
 
+      const rangeSpec = p.verses ? parseVerseRangeSpec(p.verses) : null;
       const allVerseNums = Array.from(new Set(
         results.flatMap(r => Object.keys(r.map).map(Number))
-      )).sort((a, b) => a - b);
+      )).filter(n => !rangeSpec || rangeSpec.set.has(n)).sort((a, b) => a - b);
 
       loadingIndicator.remove();
 
@@ -4581,17 +5053,10 @@
     const allVers = getAllVersions();
     const currentShortcuts = { ...(S.customShortcuts || BBE_KEY_MAP) };
 
-    const isPillRetired = (S.showAaMenu === false) || (S.showWidthControls === false);
+    const isPillRetired = (S.showAaMenu === false);
     let retiredBannerHtml = "";
     if (isPillRetired) {
-      let retiredText = "";
-      if (S.showAaMenu === false && S.showWidthControls === false) {
-        retiredText = "Unified Aa Reader Menu and Standalone Width controls are hidden from the floating toolbar.";
-      } else if (S.showAaMenu === false) {
-        retiredText = "Unified Aa Reader Menu is hidden from the floating toolbar.";
-      } else {
-        retiredText = "Standalone Width Resizer is hidden from the floating toolbar.";
-      }
+      const retiredText = "Unified Aa Reader Appearance Menu is hidden from the floating toolbar.";
 
       retiredBannerHtml = `
         <div class="bbe-modal-retired-banner">
@@ -4601,7 +5066,7 @@
               <strong>Toolbar Controls Retired:</strong> ${retiredText}
             </div>
           </div>
-          <button type="button" class="bbe-restore-banner-btn" id="bbe-modal-quick-restore-btn" title="Click to instantly restore all retired quick controls to the floating top toolbar">
+          <button type="button" class="bbe-restore-banner-btn" id="bbe-modal-quick-restore-btn" title="Click to instantly restore reader appearance controls to the floating top toolbar">
             ↺ Restore to Toolbar
           </button>
         </div>
@@ -4668,9 +5133,8 @@
     if (quickRestoreBtn) {
       quickRestoreBtn.addEventListener("click", async () => {
         S.showAaMenu = true;
-        S.showWidthControls = true;
-        await bbeSave({ showAaMenu: true, showWidthControls: true });
-        showToast("✓ Restored Unified Aa Menu & Width controls to toolbar!");
+        await bbeSave({ showAaMenu: true });
+        showToast("✓ Restored Unified Aa Menu to toolbar!");
         lastRenderKey = "";
         const p = bbeParsePath(location.pathname, getAllVersions());
         if (p) renderToolbar(p);
@@ -5118,26 +5582,18 @@
 
             <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,0,0,0.06);">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                <div class="bbe-modal-card-title" style="margin:0;">🎯 Floating Toolbar Quick Pills</div>
-                <button type="button" class="bbe-preview-btn bbe-preview-btn-primary" id="bbe-restore-typo-pills-btn" title="Restore quick controls to the floating top pill">
-                  ↺ Restore Toolbar Pills
+                <div class="bbe-modal-card-title" style="margin:0;">🎯 Floating Toolbar Quick Pill</div>
+                <button type="button" class="bbe-preview-btn bbe-preview-btn-primary" id="bbe-restore-typo-pills-btn" title="Restore reader appearance controls to the floating top pill">
+                  ↺ Restore Aa Pill
                 </button>
               </div>
 
               <label class="bbe-modal-row" style="margin-top:6px;">
                 <div>
-                  <div class="bbe-modal-row-label">Show Unified Aa Reader Menu on Floating Pill (Aa ▾)</div>
+                  <div class="bbe-modal-row-label">Show Reader Appearance Menu on Floating Pill (Aa ▾)</div>
                   <div class="bbe-modal-row-hint">Display the unified Aa reader menu (Column Width, Text Size, Font Family, Theme Swatches).</div>
                 </div>
                 <input type="checkbox" id="bbe-modal-aa-menu-typo-check" ${S.showAaMenu !== false ? 'checked' : ''}>
-              </label>
-
-              <label class="bbe-modal-row" style="margin-top:6px;">
-                <div>
-                  <div class="bbe-modal-row-label">Show Standalone Width Resizer on Floating Pill (↔ 950 ▾)</div>
-                  <div class="bbe-modal-row-hint">Display the dedicated expandable width button (750 / 950 / 1200 / Max) on the floating toolbar.</div>
-                </div>
-                <input type="checkbox" id="bbe-modal-width-controls-typo-check" ${S.showWidthControls !== false ? 'checked' : ''}>
               </label>
             </div>
           </div>
@@ -5265,25 +5721,12 @@
       if (restoreTypoPillsBtn) {
         restoreTypoPillsBtn.addEventListener("click", async () => {
           S.showAaMenu = true;
-          S.showWidthControls = true;
-          await bbeSave({ showAaMenu: true, showWidthControls: true });
-          showToast("✓ Restored Unified Aa Menu & Width controls to toolbar!");
+          await bbeSave({ showAaMenu: true });
+          showToast("✓ Restored Aa Reader Menu to toolbar!");
           lastRenderKey = "";
           const p = bbeParsePath(location.pathname, getAllVersions());
           if (p) renderToolbar(p);
           renderSettingsModalContent();
-        });
-      }
-
-      const widthControlsTypoCheck = bodyEl.querySelector("#bbe-modal-width-controls-typo-check");
-      if (widthControlsTypoCheck) {
-        widthControlsTypoCheck.addEventListener("change", async () => {
-          S.showWidthControls = widthControlsTypoCheck.checked;
-          await bbeSave({ showWidthControls: widthControlsTypoCheck.checked });
-          showToast(widthControlsTypoCheck.checked ? "✓ Width resizer restored to floating pill" : "Width resizer retired to Settings");
-          lastRenderKey = "";
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderToolbar(p);
         });
       }
 
@@ -5785,28 +6228,20 @@
         <div class="bbe-modal-card" style="border: 1.5px solid #3b82f6; background: rgba(59, 130, 246, 0.04);">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
             <div>
-              <div class="bbe-modal-card-title" style="margin:0;color:#2563eb;">🎯 Floating Toolbar Quick Pills</div>
+              <div class="bbe-modal-card-title" style="margin:0;color:#2563eb;">🎯 Floating Toolbar Quick Pill</div>
               <div class="bbe-modal-hint" style="margin:2px 0 0 0;">Restore or toggle quick buttons directly on your floating study pill.</div>
             </div>
-            <button type="button" class="bbe-preview-btn bbe-preview-btn-primary" id="bbe-restore-all-toolbar-pills-btn" title="Restore all quick pills to the floating toolbar">
-              ↺ Restore All Pills
+            <button type="button" class="bbe-preview-btn bbe-preview-btn-primary" id="bbe-restore-all-toolbar-pills-btn" title="Restore quick controls to the floating toolbar">
+              ↺ Restore Aa Pill
             </button>
           </div>
 
           <label class="bbe-modal-row" style="margin-top:10px;">
             <div>
-              <div class="bbe-modal-row-label">Show Unified Aa Reader Menu on Floating Pill (Aa ▾)</div>
+              <div class="bbe-modal-row-label">Show Reader Appearance Menu on Floating Pill (Aa ▾)</div>
               <div class="bbe-modal-row-hint">Display the unified Aa reader menu (Column Width, Text Size, Font Family, Theme Swatches). Uncheck to retire to Settings.</div>
             </div>
             <input type="checkbox" id="bbe-modal-aa-menu-check" ${S.showAaMenu !== false ? 'checked' : ''}>
-          </label>
-
-          <label class="bbe-modal-row" style="margin-top:8px;">
-            <div>
-              <div class="bbe-modal-row-label">Show Standalone Width Resizer on Floating Pill (↔ 950 ▾)</div>
-              <div class="bbe-modal-row-hint">Display the dedicated expandable width button (750 / 950 / 1200 / Max). Uncheck to retire to Settings.</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-width-controls-check" ${S.showWidthControls !== false ? 'checked' : ''}>
           </label>
         </div>
 
@@ -5889,31 +6324,18 @@
       const compareLayoutSelect = bodyEl.querySelector("#bbe-modal-compare-layout");
       const comparePillsContainer = bodyEl.querySelector("#bbe-modal-compare-pills");
       const scrollProgCheck = bodyEl.querySelector("#bbe-modal-scrollprog-check");
-      const widthControlsCheck = bodyEl.querySelector("#bbe-modal-width-controls-check");
       const aaMenuCheck = bodyEl.querySelector("#bbe-modal-aa-menu-check");
 
       const restoreToolbarPillsBtn = bodyEl.querySelector("#bbe-restore-all-toolbar-pills-btn");
       if (restoreToolbarPillsBtn) {
         restoreToolbarPillsBtn.addEventListener("click", async () => {
           S.showAaMenu = true;
-          S.showWidthControls = true;
-          await bbeSave({ showAaMenu: true, showWidthControls: true });
-          showToast("✓ All toolbar quick pills restored to default!");
+          await bbeSave({ showAaMenu: true });
+          showToast("✓ Aa reader appearance pill restored to default!");
           lastRenderKey = "";
           const p = bbeParsePath(location.pathname, getAllVersions());
           if (p) renderToolbar(p);
           renderSettingsModalContent();
-        });
-      }
-
-      if (widthControlsCheck) {
-        widthControlsCheck.addEventListener("change", async () => {
-          S.showWidthControls = widthControlsCheck.checked;
-          await bbeSave({ showWidthControls: widthControlsCheck.checked });
-          showToast(widthControlsCheck.checked ? "✓ Width resizer restored to floating pill" : "Width resizer retired to Settings");
-          lastRenderKey = "";
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderToolbar(p);
         });
       }
 
@@ -6179,16 +6601,21 @@
   /* ---------------- Main Lifecycle Loop ---------------- */
   function tick() {
     if (!document.body) return;
-    syncDomClasses();
 
     const allVers = getAllVersions();
     const p = bbeParsePath(location.pathname, allVers);
     if (!S.enabled || !p) {
+      ensureVersePageReader(null);
+      syncDomClasses();
       document.getElementById("bbe-bar")?.remove();
       removeCompare();
       lastRenderKey = "";
       return;
     }
+
+    // Ensure single-verse & verse-segment pages have the full Deep Bible reader structure
+    ensureVersePageReader(p);
+    syncDomClasses();
 
     // Trigger background preloading for instant swapping
     preloadOtherVersions(p);
@@ -6225,7 +6652,6 @@
       S.copyIncludeHeadings,
       S.fontFamily,
       S.readerTheme,
-      S.showWidthControls,
       S.showAaMenu,
       (S.toolbarVersions || []).join(),
       JSON.stringify(S.customShortcuts || {}),

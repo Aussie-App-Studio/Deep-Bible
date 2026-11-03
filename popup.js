@@ -192,13 +192,10 @@
   if (restorePillsBtn) {
     restorePillsBtn.addEventListener("click", async () => {
       S.showAaMenu = true;
-      S.showWidthControls = true;
-      const wEl = document.getElementById("showWidthControls");
       const aaEl = document.getElementById("showAaMenu");
-      if (wEl) wEl.checked = true;
       if (aaEl) aaEl.checked = true;
-      await bbeSave({ showAaMenu: true, showWidthControls: true });
-      showToast("✓ Restored Unified Aa Menu & Width controls to toolbar!");
+      await bbeSave({ showAaMenu: true });
+      showToast("✓ Restored Aa Reader Menu to toolbar!");
     });
   }
 

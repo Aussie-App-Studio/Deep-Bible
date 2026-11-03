@@ -6,8 +6,7 @@ var BBE_DEFAULTS = {
   schemaVersion: 3,
   enabled: true,
   columnWidth: 950,         // px, max width of scripture column
-  showWidthControls: true,  // Show expandable column width button (750, 950, 1200, Max) on main study pill
-  showAaMenu: true,         // Show unified Aa reader menu (Text Size, Font, Theme) on main study pill
+  showAaMenu: true,         // Show unified Aa reader menu (Column Width, Text Size, Font, Theme) on main study pill
   fontSize: 100,            // %
   lineHeight: 1.8,
   fontFamily: "serif",      // "serif" (Classic Book Serif) | "sans" (Modern Sans) | "mono" (Warm Monospace) | "dyslexic" (Dyslexia Friendly)
