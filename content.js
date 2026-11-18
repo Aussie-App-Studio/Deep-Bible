@@ -339,6 +339,8 @@
       let shouldRerender = false;
       let commentaryChanged = false;
       let modernFetchChanged = false;
+      let dockChanged = false;
+      let defaultTabChanged = false;
       for (const k in changes) {
         S[k] = changes[k].newValue;
         if (k === "hiddenCommentaries" || k === "commentaryOrder") {
@@ -347,6 +349,12 @@
         if (k === "commEnableTgc" || k === "commEnableGuzik" || k === "commEnableConstable" || k === "commEnableUtley") {
           commentaryChanged = true;
           modernFetchChanged = true;
+        }
+        if (k === "commentaryDock" || k === "commentaryBottomHeight") {
+          dockChanged = true;
+        }
+        if (k === "defaultStudyTab") {
+          defaultTabChanged = true;
         }
         // Don't re-render toolbar when quickStudyShowCount increments on focus,
         // but re-render if it was reset to 0 from settings/popup.
@@ -359,11 +367,29 @@
         }
       }
       syncDomClasses();
+      if (dockChanged) {
+        const drawerEl = document.getElementById("bbe-drawer");
+        if (drawerEl) applyDrawerDockClasses(drawerEl);
+      }
+      if (defaultTabChanged) {
+        activeStudyTab = S.defaultStudyTab || "commentary";
+        if (isDrawerOpen) {
+          switchStudyTab(activeStudyTab);
+        }
+      }
       if (commentaryChanged && isDrawerOpen && activeStudyTab === "commentary" && currentDrawerPassage?.book) {
         refreshOpenCommentaryDrawer(modernFetchChanged);
       }
       if (shouldRerender) {
         lastRenderKey = ""; // trigger re-render
+        if (!S.prefetchTranslations) {
+          cancelPreloading();
+        }
+        if (S.preloadAdjacentChapters === false) {
+          clearTimeout(preloadAdjacentTimer);
+          preloadAdjacentTimer = null;
+          lastAdjacentPreloadChap = "";
+        }
         const p = bbeParsePath(location.pathname, getAllVersions());
         if (p) {
           preloadOtherVersions(p, true); // Force preload newly added translations or shortcuts
@@ -702,6 +728,42 @@
     return { prevHref, nextHref };
   }
 
+  function updateAdjacentChapterLinks(prevHref, nextHref) {
+    const prevSet = new Set(document.querySelectorAll('a[aria-label="Previous Chapter"], #bbe-verse-prev-link'));
+    const nextSet = new Set(document.querySelectorAll('a[aria-label="Next Chapter"], #bbe-verse-next-link'));
+    if (prevSet.size === 0) {
+      const fallbackPrev = document.querySelector('a[aria-label*="Previous"]');
+      if (fallbackPrev) prevSet.add(fallbackPrev);
+    }
+    if (nextSet.size === 0) {
+      const fallbackNext = document.querySelector('a[aria-label*="Next"]');
+      if (fallbackNext) nextSet.add(fallbackNext);
+    }
+    const applyLink = (el, href) => {
+      if (href) {
+        el.setAttribute("href", href);
+        el.removeAttribute("aria-disabled");
+        if (el.id === "bbe-verse-prev-link" || el.id === "bbe-verse-next-link") {
+          el.style.visibility = "visible";
+        }
+      } else {
+        el.removeAttribute("href");
+        el.setAttribute("aria-disabled", "true");
+        if (el.id === "bbe-verse-prev-link" || el.id === "bbe-verse-next-link") {
+          el.style.visibility = "hidden";
+        }
+      }
+    };
+    prevSet.forEach(el => applyLink(el, prevHref));
+    nextSet.forEach(el => applyLink(el, nextHref));
+  }
+
+  function syncAdjacentChapterLinks(p) {
+    if (!p) return;
+    const { prevHref, nextHref } = getAdjacentChapterHrefs(p);
+    updateAdjacentChapterLinks(prevHref, nextHref);
+  }
+
   async function transitionPassageInPlace(targetP, activeKey) {
     const allVers = getAllVersions();
     const verKey = activeKey || bbeKeyForId(targetP.id, allVers) || targetP.abbr || "ESV";
@@ -734,11 +796,12 @@
       const readerH1 = document.querySelector('[class*="_reader"] h1') || document.querySelector("#bbe-verse-reader-h1");
       if (readerH1) readerH1.textContent = headingText;
 
+      syncAdjacentChapterLinks({ ...targetP, id: v.id, abbr: verKey });
       const finalPath = bbeBuildPath(v.id, verKey, targetP);
+      lastRenderKey = "";
       history.pushState({ bbePassageSwapped: true }, "", finalPath + location.search + location.hash);
       document.title = `${headingText} | ${verKey} Bible | YouVersion`;
 
-      lastRenderKey = "";
       tick();
     } catch (err) {
       location.href = newPath;
@@ -966,22 +1029,33 @@
 
   // Preloads core translations intelligently with a 3s idle delay and staggered queue
   let preloadTimer = null;
+  let preloadIdleId = null;
   let preloadQueueTimeouts = [];
 
   function cancelPreloading() {
+    const hadPending = preloadTimer !== null || preloadIdleId !== null || preloadQueueTimeouts.length > 0;
     if (preloadTimer) {
       clearTimeout(preloadTimer);
       preloadTimer = null;
     }
+    if (preloadIdleId !== null && typeof cancelIdleCallback === "function") {
+      cancelIdleCallback(preloadIdleId);
+      preloadIdleId = null;
+    }
     preloadQueueTimeouts.forEach(t => clearTimeout(t));
     preloadQueueTimeouts = [];
+    if (hadPending) {
+      lastPreloadedChapter = "";
+    }
   }
 
   function preloadOtherVersions(p, force = false) {
-    if (!S.prefetchTranslations) return;
+    if (!S.prefetchTranslations) {
+      cancelPreloading();
+      return;
+    }
     const chapKey = `${p.book}.${p.chapter}`;
     if (!force && lastPreloadedChapter === chapKey) return;
-    lastPreloadedChapter = chapKey;
 
     const allVers = getAllVersions();
     const curKey = bbeKeyForId(p.id, allVers) || p.abbr;
@@ -993,17 +1067,25 @@
       }
     }
 
-    // Cancel any previous chapter's pending preload requests
+    // Cancel any previous chapter's pending preload requests before recording the new chapter
     cancelPreloading();
+    lastPreloadedChapter = chapKey;
 
     // Delay background preloading by 3 seconds (or requestIdleCallback) so page load rendering is never competed with
     const schedulePreload = (cb) => {
       if (typeof requestIdleCallback === "function") {
         preloadTimer = setTimeout(() => {
-          requestIdleCallback(() => cb(), { timeout: 2000 });
+          preloadTimer = null;
+          preloadIdleId = requestIdleCallback(() => {
+            preloadIdleId = null;
+            cb();
+          }, { timeout: 2000 });
         }, 3000);
       } else {
-        preloadTimer = setTimeout(cb, 3000);
+        preloadTimer = setTimeout(() => {
+          preloadTimer = null;
+          cb();
+        }, 3000);
       }
     };
 
@@ -1064,6 +1146,7 @@
       // Queue the remaining versions with a 200ms gap to eliminate bandwidth spikes
       remainingList.forEach((key, index) => {
         const timeout = setTimeout(() => {
+          preloadQueueTimeouts = preloadQueueTimeouts.filter(t => t !== timeout);
           const checkP = bbeParsePath(location.pathname, allVers);
           if (checkP && `${checkP.book}.${checkP.chapter}` === chapKey) {
             fetchChapter(key, p).catch(() => {});
@@ -1178,16 +1261,18 @@
       }
       await applyChapterTransition(curChapterEl, newHtml, activeVerse);
 
-      // Update URL and document title without full page reload
-      const newPath = bbeBuildPath(v.id, targetKey, p);
-      history.pushState({ bbeSwapped: true, key: targetKey, id: v.id }, "", newPath + location.search + location.hash);
-      document.title = document.title.replace(/\| .*? Bible/i, `| ${targetKey} Bible`);
-
       p.id = v.id;
       p.abbr = targetKey;
       curChapterEl.dataset.bbePassageKey = `${v.id}|${p.book}.${p.chapter}|${p.verses || "FULL"}`;
       curChapterEl.dataset.bbeFiltered = p.verses ? "1" : "";
+      syncAdjacentChapterLinks(p);
+
+      // Update URL and document title without full page reload (triggers handleUrlChange -> tick)
+      const newPath = bbeBuildPath(v.id, targetKey, p);
       lastRenderKey = "";
+      history.pushState({ bbeSwapped: true, key: targetKey, id: v.id }, "", newPath + location.search + location.hash);
+      document.title = document.title.replace(/\| .*? Bible/i, `| ${targetKey} Bible`);
+
       ensureVersePageReader(p);
       renderVerseBadges(p, true);
       renderToolbar(p);
@@ -1214,9 +1299,21 @@
   function getNativeChapterUrls() {
     const prevA = document.querySelector('a[aria-label="Previous Chapter"], a[aria-label*="Previous"]');
     const nextA = document.querySelector('a[aria-label="Next Chapter"], a[aria-label*="Next"]');
+    let prevUrl = (prevA && prevA.getAttribute("aria-disabled") !== "true") ? cleanChapterUrl(prevA.getAttribute("href")) : null;
+    let nextUrl = (nextA && nextA.getAttribute("aria-disabled") !== "true") ? cleanChapterUrl(nextA.getAttribute("href")) : null;
+
+    if (!prevA || !nextA) {
+      const curP = bbeParsePath(location.pathname, getAllVersions());
+      if (curP) {
+        const computed = getAdjacentChapterHrefs(curP);
+        if (!prevA) prevUrl = computed.prevHref;
+        if (!nextA) nextUrl = computed.nextHref;
+      }
+    }
+
     return {
-      prevUrl: prevA ? cleanChapterUrl(prevA.getAttribute("href")) : null,
-      nextUrl: nextA ? cleanChapterUrl(nextA.getAttribute("href")) : null,
+      prevUrl: prevUrl || null,
+      nextUrl: nextUrl || null,
       prevEl: prevA,
       nextEl: nextA
     };
@@ -1267,13 +1364,19 @@
   let preloadAdjacentTimer = null;
   let lastAdjacentPreloadChap = "";
   function preloadAdjacentChapters(p) {
-    if (S.preloadAdjacentChapters === false) return;
+    if (S.preloadAdjacentChapters === false) {
+      clearTimeout(preloadAdjacentTimer);
+      preloadAdjacentTimer = null;
+      lastAdjacentPreloadChap = "";
+      return;
+    }
     const chapKey = p ? `${p.book}.${p.chapter}.${p.id || p.abbr}` : "";
     if (chapKey && lastAdjacentPreloadChap === chapKey) return;
     if (chapKey) lastAdjacentPreloadChap = chapKey;
 
     clearTimeout(preloadAdjacentTimer);
     preloadAdjacentTimer = setTimeout(() => {
+      preloadAdjacentTimer = null;
       const { prevUrl, nextUrl } = getNativeChapterUrls();
       if (nextUrl) fetchAdjacentChapter(nextUrl);
       if (prevUrl) fetchAdjacentChapter(prevUrl);
@@ -1356,12 +1459,6 @@
       // Apply directional slide transition (Right-to-Left for Next, Left-to-Right for Prev)
       await applyChapterDirectionalTransition(curChapterEl, data.html, direction);
 
-      // Update URL and document title in browser history
-      history.pushState({ bbeChapterSwapped: true, url: targetUrl }, "", targetUrl);
-      if (data.title) {
-        document.title = data.title;
-      }
-
       const nextP = bbeParsePath(targetUrl, getAllVersions());
       if (nextP) {
         curChapterEl.dataset.bbePassageKey = `${nextP.id}|${nextP.book}.${nextP.chapter}|${nextP.verses || "FULL"}`;
@@ -1369,22 +1466,18 @@
         curChapterEl.setAttribute("data-usfm", `${nextP.book}.${nextP.chapter}`);
       }
 
-      // Update native floating buttons' hrefs
-      if (prevEl && data.prevHref) {
-        prevEl.setAttribute("href", data.prevHref);
-        prevEl.removeAttribute("aria-disabled");
-      }
-      if (nextEl && data.nextHref) {
-        nextEl.setAttribute("href", data.nextHref);
-        nextEl.removeAttribute("aria-disabled");
-      }
+      // Update native floating buttons' hrefs (including clearing boundary hrefs) before pushState triggers tick()
+      updateAdjacentChapterLinks(data.prevHref, data.nextHref);
 
-      // Trigger immediate tick to re-render toolbar with new chapter number, verse badges
+      // Update URL and document title in browser history
       lastRenderKey = "";
-      tick();
+      history.pushState({ bbeChapterSwapped: true, url: targetUrl }, "", targetUrl);
+      if (data.title) {
+        document.title = data.title;
+      }
 
-      // Trigger preloading for the next adjacent chapters
-      preloadAdjacentChapters();
+      // Trigger immediate tick to re-render toolbar with new chapter number, verse badges, and adjacent preloading
+      tick();
     } catch (err) {
       console.warn("Instant chapter swap failed, falling back to standard navigation:", err);
       if (activeBtn) activeBtn.classList.remove("bbe-nav-loading");
@@ -1805,11 +1898,11 @@
   }
 
   const YOUVERSION_HIGHLIGHT_COLORS = [
-    { id: "fffe00", name: "Yellow", hex: "#fffe00" },
-    { id: "5dff79", name: "Mint Green", hex: "#5dff79" },
-    { id: "00d6ff", name: "Sky Blue", hex: "#00d6ff" },
-    { id: "ffc66f", name: "Warm Amber", hex: "#ffc66f" },
-    { id: "ff95ef", name: "Gentle Rose", hex: "#ff95ef" }
+    { id: "fffe00", name: "Yellow", hex: "#fdefc5" },
+    { id: "5dff79", name: "Green", hex: "#d9e9ce" },
+    { id: "00d6ff", name: "Blue", hex: "#baddff" },
+    { id: "ffc66f", name: "Orange", hex: "#fcd7b6" },
+    { id: "ff95ef", name: "Pink", hex: "#f5c8d6" }
   ];
 
   let cachedSignedInStatus = null;
@@ -2294,9 +2387,9 @@
 
   // Double-clicking a verse while the bottom-docked study bar is open switches the drawer to that verse
   document.addEventListener("dblclick", (e) => {
-    if (!S.enabled || !isDrawerOpen || (S.commentaryDock || "bottom") !== "bottom" || isDrawerFullscreen || isShortcutsModalOpen) return;
+    if (!S.enabled || !isDrawerOpen || (S.commentaryDock || "bottom") !== "bottom" || isDrawerFullscreen) return;
     if (!e.target || !e.target.closest) return;
-    if (e.target.closest("a, button, input, textarea, select, [contenteditable='true'], #bbe-drawer, #bbe-bar, #bbe-shortcuts-modal, #bbe-selection-copy-bar, #bbe-word-tooltip")) return;
+    if (e.target.closest("a, button, input, textarea, select, [contenteditable='true'], #bbe-drawer, #bbe-bar, #bbe-selection-copy-bar, #bbe-word-tooltip")) return;
 
     const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
     if (!chapterEl || !chapterEl.contains(e.target)) return;
@@ -2316,9 +2409,9 @@
     }
   });
 
-  // Intercept native Ctrl+C / Cmd+C on highlighted scripture text to strip verse numbers & headings
+  // Intercept native Ctrl+C / Cmd+C on highlighted scripture text to strip footnotes and apply paste formatting
   document.addEventListener("copy", (e) => {
-    if (!S.enabled || S.smartVerseCopy === false || S.copyCleanSelection === false) return;
+    if (!S.enabled || S.copyCleanSelection === false) return;
 
     // Do not intercept if copying from inputs, textareas, notes editor, or modals
     const active = document.activeElement;
@@ -2326,7 +2419,7 @@
       const tag = active.tagName.toLowerCase();
       if (tag === "input" || tag === "textarea") return;
       if (active.isContentEditable || active.getAttribute("contenteditable") === "true") return;
-      if (active.closest && (active.closest("#bbe-drawer") || active.closest("#bbe-shortcuts-modal"))) return;
+      if (active.closest && active.closest("#bbe-drawer")) return;
     }
 
     const sel = window.getSelection();
@@ -2921,6 +3014,7 @@
 
   function openCommentaryDrawer(bookCode, chapter, verseNum, optTab) {
     const { backdrop, drawer } = ensureDrawerElements();
+    const wasOpen = isDrawerOpen;
     isDrawerOpen = true;
 
     applyDrawerDockClasses(drawer);
@@ -2956,6 +3050,8 @@
 
     if (optTab) {
       activeStudyTab = optTab;
+    } else if (!wasOpen) {
+      activeStudyTab = S.defaultStudyTab || "commentary";
     }
     switchStudyTab(activeStudyTab || S.defaultStudyTab || "commentary");
 
@@ -3547,12 +3643,9 @@
       adjacentChapterCache.get(clean).then(data => {
         curChapterEl.innerHTML = data.html;
         if (data.title) document.title = data.title;
-        const { prevEl, nextEl } = getNativeChapterUrls();
-        if (prevEl && data.prevHref) prevEl.setAttribute("href", data.prevHref);
-        if (nextEl && data.nextHref) nextEl.setAttribute("href", data.nextHref);
+        updateAdjacentChapterLinks(data.prevHref, data.nextHref);
         lastRenderKey = "";
         tick();
-        preloadAdjacentChapters();
       }).catch(() => {
         location.reload();
       });
@@ -3565,13 +3658,8 @@
   });
 
   window.addEventListener("keydown", (e) => {
-    // Escape key closes modal or commentary drawer
+    // Escape key closes commentary drawer
     if (e.key === "Escape") {
-      if (isShortcutsModalOpen) {
-        e.preventDefault();
-        closeShortcutsModal();
-        return;
-      }
       if (isDrawerOpen) {
         e.preventDefault();
         if (isDrawerFullscreen) {
@@ -3585,10 +3673,7 @@
       }
     }
 
-    if (!S.enabled || !S.enableKeyShortcuts) return;
-
-    // Ignore if shortcuts modal is open
-    if (isShortcutsModalOpen) return;
+    if (!S.enabled) return;
 
     // Ignore if input, textarea, select, or editable element is focused
     const active = document.activeElement;
@@ -3606,7 +3691,7 @@
     // Ignore if modifier keys are held (Ctrl, Alt, Meta/Cmd)
     if (e.ctrlKey || e.altKey || e.metaKey) return;
 
-    // Arrow keys for Left / Right instant chapter navigation
+    // Arrow keys for Left / Right instant chapter navigation (independent of single-key translation shortcuts)
     if (S.chapterArrowKeys !== false) {
       if (e.key === "ArrowLeft") {
         e.preventDefault();
@@ -3648,26 +3733,43 @@
 
     // Hardcoded study drawer hotkeys (cannot be reassigned to translations)
     if (k === "c" || k === "r") {
-      toggleDrawerShortcutTab(k === "r" ? "crossref" : "commentary", e);
+      const allVers = getAllVersions();
+      const p = bbeParsePath(location.pathname, allVers);
+      if (!p) return;
+      e.preventDefault();
+      if (k === "r") {
+        toggleDrawerShortcutTab("crossref", e);
+      } else if (isDrawerOpen) {
+        const defaultTab = S.defaultStudyTab || "commentary";
+        if (activeStudyTab === "crossref" && defaultTab !== "crossref") {
+          switchStudyTab("commentary");
+        } else {
+          closeCommentaryDrawer();
+        }
+      } else {
+        openCommentaryDrawer(p.book, p.chapter, getContextualStudyVerse(p));
+      }
       return;
     }
 
     const keyMap = getKeyMap();
 
-    // Check if key is mapped to a translation shortcut
-    const targetVersion = keyMap[k];
-    if (targetVersion) {
-      const allVers = getAllVersions();
-      const p = bbeParsePath(location.pathname, allVers);
-      if (p) {
-        e.preventDefault();
-        switchToVersion(targetVersion, p);
+    // Check if key is mapped to a translation shortcut (only when Single-Key Shortcuts is enabled)
+    if (S.enableKeyShortcuts) {
+      const targetVersion = keyMap[k];
+      if (targetVersion) {
+        const allVers = getAllVersions();
+        const p = bbeParsePath(location.pathname, allVers);
+        if (p) {
+          e.preventDefault();
+          switchToVersion(targetVersion, p);
+        }
+        return;
       }
-      return;
     }
 
     // 'W' shortcut toggles Strong's Word Study mode if not mapped to a translation
-    if (k === "w") {
+    if (k === "w" && !(S.enableKeyShortcuts && keyMap["w"])) {
       e.preventDefault();
       const next = !S.wordStudyMode;
       bbeSave({ wordStudyMode: next }).then(() => {
@@ -3676,8 +3778,8 @@
       return;
     }
 
-    // 'H' shortcut highlights current selection or hovered verse with default color
-    if (k === "h" && !keyMap["h"] && S.youversionHighlighting !== false) {
+    // 'H' shortcut highlights current selection with default color
+    if (k === "h" && !(S.enableKeyShortcuts && keyMap["h"])) {
       if (selectionBarEl && selectionBarEl.classList.contains("show")) {
         const defColor = S.defaultHighlightColor || "fffe00";
         const swatch = selectionBarEl.querySelector(`.bbe-swatch-btn[data-color="${defColor}"]`) || selectionBarEl.querySelector(".bbe-swatch-btn");
@@ -3803,7 +3905,6 @@
     if (bar.matches(":hover") || bar.classList.contains("bbe-hover")) return;
     const searchInput = bar.querySelector(".bbe-search-input");
     if (searchInput && (document.activeElement === searchInput || searchInput.matches(":focus"))) return;
-    if (isShortcutsModalOpen) return;
 
     if (!isBarHidden) {
       isBarHidden = true;
@@ -4200,7 +4301,7 @@
         e.preventDefault();
         e.stopPropagation();
         popover.classList.remove("open");
-        openShortcutsModal();
+        openExtensionOptionsTab("shortcuts");
       });
     }
 
@@ -4469,7 +4570,7 @@
           e.stopPropagation();
           S.showAaMenu = false;
           await bbeSave({ showAaMenu: false });
-          showToast("Aa Reader Menu retired. Restore anytime in Settings (⚙) > Floating Toolbar or Typography.");
+          showToast("Aa Reader Menu retired. Restore anytime in Settings (⚙) > Typography & Themes.");
           aaPop.classList.remove("open");
           lastRenderKey = "";
           renderToolbar(p);
@@ -4518,16 +4619,11 @@
       });
     }, isCleanView, true));
 
-    // Settings Button (opens on-page Quick Settings modal)
-    const settingsBtn = createBtn("⚙ Settings", "Quick Settings (Click for quick menu, right-click for full settings page)", () => {
-      openSettingsModal();
-    }, isSettingsModalOpen, true);
-    settingsBtn.classList.add("bbe-settings-btn");
-    settingsBtn.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+    // Settings Button (opens Full Settings page)
+    const settingsBtn = createBtn("⚙ Settings", "Open Deep Bible Settings", () => {
       openExtensionOptionsTab();
-    });
+    }, false, true);
+    settingsBtn.classList.add("bbe-settings-btn");
     rightSec.appendChild(settingsBtn);
 
     mainRow.appendChild(rightSec);
@@ -4837,21 +4933,11 @@
       titleWrap.appendChild(versionSelect);
       header.appendChild(titleWrap);
 
-      // Actions in Header (Make Primary + Remove Column)
-      const actions = document.createElement("div");
-      actions.className = "bbe-col-actions";
-
-      const makePrimary = document.createElement("button");
-      makePrimary.type = "button";
-      makePrimary.className = "bbe-col-btn bbe-col-btn-primary";
-      makePrimary.textContent = "Make Primary";
-      makePrimary.title = `Switch main reading translation to ${v.name}`;
-      makePrimary.addEventListener("click", () => {
-        location.href = bbeBuildPath(v.id, key, p);
-      });
-      actions.appendChild(makePrimary);
-
+      // Actions in Header (Remove Column)
       if (versions.length > 1) {
+        const actions = document.createElement("div");
+        actions.className = "bbe-col-actions";
+
         const removeCol = document.createElement("button");
         removeCol.type = "button";
         removeCol.className = "bbe-col-btn";
@@ -4862,9 +4948,8 @@
           await bbeSave({ compareVersions: updated });
         });
         actions.appendChild(removeCol);
+        header.appendChild(actions);
       }
-
-      header.appendChild(actions);
       col.appendChild(header);
 
       // Column Body
@@ -4899,6 +4984,50 @@
     }
 
     container.appendChild(colsGrid);
+
+    // Synchronized cross-column verse hover highlighting
+    let activeSyncEls = [];
+    let activeSyncKey = "";
+
+    const clearSyncHover = () => {
+      if (activeSyncEls.length === 0) return;
+      for (const el of activeSyncEls) el.classList.remove("bbe-sync-hover");
+      activeSyncEls = [];
+      activeSyncKey = "";
+    };
+
+    colsGrid.addEventListener("mouseover", (e) => {
+      const vEl = e.target?.closest?.('[class*="_verse"][data-usfm]');
+      if (!vEl || !colsGrid.contains(vEl)) return;
+      const nums = extractUsfmVerseNums(vEl.getAttribute("data-usfm") || "");
+      if (nums.length === 0) return;
+      const key = nums.join(",");
+      if (key === activeSyncKey) return;
+
+      clearSyncHover();
+      activeSyncKey = key;
+      const numSet = new Set(nums);
+      const matches = [];
+      for (const candidate of colsGrid.querySelectorAll('[class*="_verse"][data-usfm]')) {
+        const cNums = extractUsfmVerseNums(candidate.getAttribute("data-usfm") || "");
+        if (cNums.some(n => numSet.has(n))) {
+          candidate.classList.add("bbe-sync-hover");
+          matches.push(candidate);
+        }
+      }
+      activeSyncEls = matches;
+    });
+
+    colsGrid.addEventListener("mouseout", (e) => {
+      if (!activeSyncKey) return;
+      const related = e.relatedTarget;
+      if (related && colsGrid.contains(related) && related.closest?.('[class*="_verse"][data-usfm]')) {
+        return;
+      }
+      clearSyncHover();
+    });
+
+    colsGrid.addEventListener("mouseleave", clearSyncHover);
   }
 
   async function renderInterleavedCompare(container, p, versions, allVers, origChapter) {
@@ -4923,20 +5052,10 @@
       });
       colHead.appendChild(select);
 
-      const cellActions = document.createElement("div");
-      cellActions.className = "bbe-interleaved-cell-actions";
-
-      const makePrimary = document.createElement("button");
-      makePrimary.type = "button";
-      makePrimary.className = "bbe-col-btn bbe-col-btn-primary";
-      makePrimary.textContent = "Primary";
-      makePrimary.title = `Switch main reading translation to ${v.name}`;
-      makePrimary.addEventListener("click", () => {
-        location.href = bbeBuildPath(v.id, key, p);
-      });
-      cellActions.appendChild(makePrimary);
-
       if (versions.length > 1) {
+        const cellActions = document.createElement("div");
+        cellActions.className = "bbe-interleaved-cell-actions";
+
         const removeCol = document.createElement("button");
         removeCol.type = "button";
         removeCol.className = "bbe-col-btn";
@@ -4947,9 +5066,8 @@
           await bbeSave({ compareVersions: updated });
         });
         cellActions.appendChild(removeCol);
+        colHead.appendChild(cellActions);
       }
-
-      colHead.appendChild(cellActions);
       stickyBar.appendChild(colHead);
     }
     interWrap.appendChild(stickyBar);
@@ -5112,1731 +5230,20 @@
     }
   }
 
-  /* ---------- Settings & Advanced Options Modal Dialog ---------- */
-  let isShortcutsModalOpen = false;
-  let isSettingsModalOpen = false;
-  let activeSettingsTab = "shortcuts";
-  let recordingKeyForVersion = null;
-  let settingsTabsScrollLeft = 0;
-  let isDraggingSettingsTabs = false;
-  let settingsTabsDidDrag = false;
-  let settingsTabsStartX = 0;
-  let settingsTabsDragStartScroll = 0;
-
-  window.addEventListener("mousemove", (e) => {
-    if (!isDraggingSettingsTabs) return;
-    const tabsEl = document.querySelector("#bbe-shortcuts-modal .bbe-modal-tabs");
-    if (!tabsEl) return;
-    e.preventDefault();
-    const x = e.pageX - tabsEl.getBoundingClientRect().left;
-    const walk = (x - settingsTabsStartX) * 1.35;
-    if (Math.abs(walk) > 4) {
-      settingsTabsDidDrag = true;
-    }
-    tabsEl.scrollLeft = settingsTabsDragStartScroll - walk;
-    settingsTabsScrollLeft = tabsEl.scrollLeft;
-  });
-
-  window.addEventListener("mouseup", () => {
-    if (!isDraggingSettingsTabs) return;
-    isDraggingSettingsTabs = false;
-    const tabsEl = document.querySelector("#bbe-shortcuts-modal .bbe-modal-tabs");
-    if (tabsEl) tabsEl.classList.remove("grabbing");
-    setTimeout(() => { settingsTabsDidDrag = false; }, 60);
-  });
-
-  function closeSettingsModal() {
-    isSettingsModalOpen = false;
-    isShortcutsModalOpen = false;
-    recordingKeyForVersion = null;
-    const backdrop = document.getElementById("bbe-modal-backdrop");
-    const modal = document.getElementById("bbe-shortcuts-modal");
-    if (backdrop) backdrop.classList.remove("open");
-    if (modal) modal.classList.remove("open");
-  }
-
-  function openExtensionOptionsTab() {
+  /* ---------- Full Settings Launcher ---------- */
+  function openExtensionOptionsTab(section) {
     try {
-      safeSendMessage({ type: "OPEN_OPTIONS" }, (res) => {
+      safeSendMessage({ type: "OPEN_OPTIONS", section: section || "" }, (res) => {
         if (!res?.ok) {
           try {
             if (typeof chrome !== "undefined" && chrome.runtime?.getURL) {
-              window.open(chrome.runtime.getURL("popup.html"), "_blank");
+              const baseUrl = chrome.runtime.getURL("popup.html");
+              window.open(section ? baseUrl + "#" + section : baseUrl, "_blank");
             }
           } catch (e) {}
         }
       });
     } catch (e) {}
-  }
-
-  function closeShortcutsModal() {
-    closeSettingsModal();
-  }
-
-  function ensureSettingsModal() {
-    let backdrop = document.getElementById("bbe-modal-backdrop");
-    if (!backdrop) {
-      backdrop = document.createElement("div");
-      backdrop.id = "bbe-modal-backdrop";
-      backdrop.addEventListener("click", closeSettingsModal);
-      document.body.appendChild(backdrop);
-    }
-
-    let modal = document.getElementById("bbe-shortcuts-modal");
-    if (!modal) {
-      modal = document.createElement("div");
-      modal.id = "bbe-shortcuts-modal";
-      document.body.appendChild(modal);
-
-      // Keydown listener on modal to capture single key when recording
-      modal.addEventListener("keydown", async (e) => {
-        if (!recordingKeyForVersion) return;
-        e.preventDefault();
-        e.stopPropagation();
-
-        const versionKey = recordingKeyForVersion;
-        recordingKeyForVersion = null;
-
-        if (e.key === "Escape") {
-          renderSettingsModalContent();
-          return;
-        }
-
-        if (e.key === "Backspace" || e.key === "Delete") {
-          const updated = { ...(S.customShortcuts || BBE_KEY_MAP) };
-          for (const [k, mapped] of Object.entries(updated)) {
-            if (mapped === versionKey) delete updated[k];
-          }
-          S.customShortcuts = updated;
-          await bbeSave({ customShortcuts: updated });
-          renderSettingsModalContent();
-          lastRenderKey = "";
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderToolbar(p);
-          return;
-        }
-
-        // Single alphanumeric character
-        if (/^[a-zA-Z0-9]$/.test(e.key)) {
-          const assignedKey = e.key.toLowerCase();
-          if (typeof BBE_RESERVED_STUDY_KEYS !== "undefined" && BBE_RESERVED_STUDY_KEYS[assignedKey]) {
-            showToast(`Key [${assignedKey.toUpperCase()}] is reserved for ${BBE_RESERVED_STUDY_KEYS[assignedKey]}`);
-            renderSettingsModalContent();
-            return;
-          }
-          const updated = { ...(S.customShortcuts || BBE_KEY_MAP) };
-
-          // Clear any existing assignment for this version
-          for (const [k, mapped] of Object.entries(updated)) {
-            if (mapped === versionKey) delete updated[k];
-          }
-
-          updated[assignedKey] = versionKey;
-          S.customShortcuts = updated;
-          await bbeSave({ customShortcuts: updated });
-          showToast(`⚡ Assigned [${assignedKey.toUpperCase()}] to ${versionKey}`);
-          renderSettingsModalContent();
-
-          // Trigger background preloading for this version immediately
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) {
-            preloadOtherVersions(p, true);
-            lastRenderKey = "";
-            renderToolbar(p);
-          }
-        }
-      });
-    }
-  }
-
-  function ensureShortcutsModal() {
-    ensureSettingsModal();
-  }
-
-  function renderSettingsModalContent() {
-    const modal = document.getElementById("bbe-shortcuts-modal");
-    if (!modal) return;
-
-    const allVers = getAllVersions();
-    const currentShortcuts = { ...(S.customShortcuts || BBE_KEY_MAP) };
-
-    const isPillRetired = (S.showAaMenu === false);
-    let retiredBannerHtml = "";
-    if (isPillRetired) {
-      const retiredText = "Unified Aa Reader Appearance Menu is hidden from the floating toolbar.";
-
-      retiredBannerHtml = `
-        <div class="bbe-modal-retired-banner">
-          <div class="bbe-retired-banner-content">
-            <span class="bbe-retired-banner-icon">💡</span>
-            <div class="bbe-retired-banner-text">
-              <strong>Toolbar Controls Retired:</strong> ${retiredText}
-            </div>
-          </div>
-          <button type="button" class="bbe-restore-banner-btn" id="bbe-modal-quick-restore-btn" title="Click to instantly restore reader appearance controls to the floating top toolbar">
-            ↺ Restore to Toolbar
-          </button>
-        </div>
-      `;
-    }
-
-    modal.innerHTML = `
-      <div class="bbe-modal-header">
-        <div class="bbe-modal-title-wrap">
-          <div class="bbe-modal-title">
-            <span>⚡ Quick Settings</span>
-          </div>
-          <div class="bbe-modal-subtitle">Quick menu — open <b>Full Settings</b> for all options</div>
-        </div>
-        <div class="bbe-modal-header-actions">
-          <a href="https://forms.gle/FN8w2g7MakzTS9GZ9" target="_blank" rel="noopener noreferrer" class="bbe-modal-feedback-btn" id="bbe-modal-feedback-btn" title="Submit feedback, report a bug, or request a feature">💬 Feedback ↗</a>
-          <button type="button" class="bbe-modal-reset-btn" id="bbe-modal-reset-all-btn" title="Reset all settings and customizations to brand-new first-install state">↺ Reset</button>
-          <button type="button" class="bbe-modal-ext-tab-btn" id="bbe-modal-ext-tab-btn" title="Open the full Deep Bible Settings page in a new tab">⚙ Full Settings ↗</button>
-          <button type="button" class="bbe-modal-close" id="bbe-modal-close-btn" title="Close (Esc)">✕</button>
-        </div>
-      </div>
-      <div class="bbe-modal-tabs" title="Drag left/right or scroll to view more sections">
-        <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'shortcuts' ? 'active' : ''}" data-tab="shortcuts">⚡ Shortcuts &amp; Versions</button>
-        <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'typography' ? 'active' : ''}" data-tab="typography">📖 Reading &amp; Typography</button>
-        <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'animation' ? 'active' : ''}" data-tab="animation">⚡ Navigation &amp; Reading</button>
-        <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'study' ? 'active' : ''}" data-tab="study">💬 Study &amp; Lexicon</button>
-        <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'toolbar' ? 'active' : ''}" data-tab="toolbar">🛠 Floating Toolbar</button>
-        <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'distractions' ? 'active' : ''}" data-tab="distractions">👁 Distraction-Free</button>
-      </div>
-      ${retiredBannerHtml}
-      <div class="bbe-modal-body" id="bbe-modal-tab-body"></div>
-    `;
-
-    modal.querySelector("#bbe-modal-close-btn").addEventListener("click", closeSettingsModal);
-
-    modal.querySelector("#bbe-modal-feedback-btn")?.addEventListener("click", (e) => {
-      e.preventDefault();
-      window.open("https://forms.gle/FN8w2g7MakzTS9GZ9", "_blank", "noopener,noreferrer");
-    });
-
-    modal.querySelector("#bbe-modal-ext-tab-btn")?.addEventListener("click", () => {
-      openExtensionOptionsTab();
-    });
-
-    modal.querySelector("#bbe-modal-reset-all-btn")?.addEventListener("click", async () => {
-      if (!confirm("Reset Deep Bible to original first-install state?\n\nThis will remove all user-customized settings, shortcuts, themes, and retired pills back to original factory defaults.")) {
-        return;
-      }
-      if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage) {
-        try {
-          if (chrome.storage.sync) await new Promise(r => chrome.storage.sync.clear(() => { if (chrome.runtime?.lastError){} r(); }));
-          if (chrome.storage.local) await new Promise(r => chrome.storage.local.clear(() => { if (chrome.runtime?.lastError){} r(); }));
-        } catch (_) {}
-      }
-      try {
-        for (let i = localStorage.length - 1; i >= 0; i--) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith("bbe_")) localStorage.removeItem(key);
-        }
-      } catch (e) {}
-      await bbeSave(BBE_DEFAULTS);
-      Object.assign(S, JSON.parse(JSON.stringify(BBE_DEFAULTS)));
-      showToast("↺ Restored to original first-install defaults!");
-      setTimeout(() => location.reload(), 500);
-    });
-
-    const quickRestoreBtn = modal.querySelector("#bbe-modal-quick-restore-btn");
-    if (quickRestoreBtn) {
-      quickRestoreBtn.addEventListener("click", async () => {
-        S.showAaMenu = true;
-        await bbeSave({ showAaMenu: true });
-        showToast("✓ Restored Unified Aa Menu to toolbar!");
-        lastRenderKey = "";
-        const p = bbeParsePath(location.pathname, getAllVersions());
-        if (p) renderToolbar(p);
-        renderSettingsModalContent();
-      });
-    }
-
-    // Wire up grab-to-scroll + wheel scroll on tabs bar (preserving scroll position across tab switches)
-    const tabsEl = modal.querySelector(".bbe-modal-tabs");
-    if (tabsEl) {
-      tabsEl.scrollLeft = settingsTabsScrollLeft;
-      tabsEl.addEventListener("scroll", () => {
-        settingsTabsScrollLeft = tabsEl.scrollLeft;
-      }, { passive: true });
-      tabsEl.addEventListener("mousedown", (e) => {
-        if (e.button !== 0) return;
-        isDraggingSettingsTabs = true;
-        settingsTabsDidDrag = false;
-        settingsTabsStartX = e.pageX - tabsEl.getBoundingClientRect().left;
-        settingsTabsDragStartScroll = tabsEl.scrollLeft;
-        tabsEl.classList.add("grabbing");
-      });
-      tabsEl.addEventListener("wheel", (e) => {
-        if (e.deltaY !== 0) {
-          e.preventDefault();
-          tabsEl.scrollLeft += e.deltaY;
-          settingsTabsScrollLeft = tabsEl.scrollLeft;
-        }
-      }, { passive: false });
-    }
-
-    // Wire up tabs (ignore clicks triggered by drag release)
-    modal.querySelectorAll(".bbe-modal-tab").forEach(btn => {
-      btn.addEventListener("click", () => {
-        if (settingsTabsDidDrag) return;
-        if (tabsEl) settingsTabsScrollLeft = tabsEl.scrollLeft;
-        activeSettingsTab = btn.dataset.tab;
-        renderSettingsModalContent();
-      });
-    });
-
-    const bodyEl = modal.querySelector("#bbe-modal-tab-body");
-
-    /* ---------------- TAB 1: Shortcuts & Custom Versions ---------------- */
-    if (activeSettingsTab === "shortcuts") {
-      bodyEl.innerHTML = `
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Built-in Study &amp; Navigation Hotkeys</div>
-          <div class="bbe-modal-hint">
-            Always active on Bible.com. <b>C</b> and <b>R</b> are reserved and cannot be assigned to translations.
-          </div>
-          <div class="bbe-shortcuts-grid">
-            <div class="bbe-shortcut-row">
-              <div><div class="bbe-shortcut-abbr">Commentary</div><div class="bbe-shortcut-name">Open / toggle (Reserved)</div></div>
-              <div class="bbe-shortcut-actions"><span class="bbe-key-capture-btn" style="cursor:default;opacity:0.85;">C</span></div>
-            </div>
-            <div class="bbe-shortcut-row">
-              <div><div class="bbe-shortcut-abbr">Cross-References</div><div class="bbe-shortcut-name">Open / toggle TSK (Reserved)</div></div>
-              <div class="bbe-shortcut-actions"><span class="bbe-key-capture-btn" style="cursor:default;opacity:0.85;">R</span></div>
-            </div>
-            <div class="bbe-shortcut-row">
-              <div><div class="bbe-shortcut-abbr">Word Study</div><div class="bbe-shortcut-name">Toggle Strong's Lexicon</div></div>
-              <div class="bbe-shortcut-actions"><span class="bbe-key-capture-btn" style="cursor:default;opacity:0.85;">W</span></div>
-            </div>
-            <div class="bbe-shortcut-row">
-              <div><div class="bbe-shortcut-abbr">Quick Highlight</div><div class="bbe-shortcut-name">Highlight selected verse</div></div>
-              <div class="bbe-shortcut-actions"><span class="bbe-key-capture-btn" style="cursor:default;opacity:0.85;">H</span></div>
-            </div>
-            <div class="bbe-shortcut-row">
-              <div><div class="bbe-shortcut-abbr">Prev / Next Chapter</div><div class="bbe-shortcut-name">Instant chapter switch</div></div>
-              <div class="bbe-shortcut-actions"><span class="bbe-key-capture-btn" style="cursor:default;opacity:0.85;width:auto;padding:0 7px;">← / →</span></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Single-Key Translation Shortcuts</div>
-          <div class="bbe-modal-hint">
-            Click any shortcut key button below, then press a single letter or number to assign it (<b>C</b> and <b>R</b> are reserved for Study tools). Press Backspace or ✕ to clear.
-          </div>
-          <div class="bbe-shortcuts-grid" id="bbe-modal-shortcuts-grid"></div>
-        </div>
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Add Custom Translation from Bible.com</div>
-          <div class="bbe-modal-hint">
-            <b>Smart Quick Fill:</b> Paste any Bible.com link, or enter just the numeric ID (e.g. <b>149</b>) or abbreviation (e.g. <b>RVR1960</b>, <b>ASV</b>). Everything else auto-fills!
-          </div>
-          <div class="bbe-add-grid">
-            <div class="bbe-input-group" style="grid-column: span 2;">
-              <label class="bbe-input-label">⚡ Quick Fill (Bible.com URL, Numeric ID, or Code)</label>
-              <input type="text" id="bbe-add-smart" class="bbe-modal-input" placeholder="e.g. bible.com/bible/149/ROM.9.RVR1960, or 149, or ASV">
-            </div>
-            <div class="bbe-input-group">
-              <label class="bbe-input-label">Abbreviation / Code</label>
-              <input type="text" id="bbe-add-abbr" class="bbe-modal-input" placeholder="Auto-fills (e.g. RVR1960)" maxlength="12">
-            </div>
-            <div class="bbe-input-group">
-              <label class="bbe-input-label">Bible.com Numeric ID</label>
-              <input type="number" id="bbe-add-id" class="bbe-modal-input" placeholder="Auto-fills (e.g. 149)" min="1" max="99999">
-            </div>
-            <div class="bbe-input-group" style="grid-column: span 2;">
-              <label class="bbe-input-label">Full Translation Name <span style="font-weight:400;opacity:0.75;">(optional - auto-detected)</span></label>
-              <input type="text" id="bbe-add-name" class="bbe-modal-input" placeholder="Auto-detected name from Bible.com">
-            </div>
-            <div class="bbe-input-group">
-              <label class="bbe-input-label">Shortcut Key <span style="font-weight:400;opacity:0.75;">(optional)</span></label>
-              <input type="text" id="bbe-add-key" class="bbe-modal-input" placeholder="e.g. R" maxlength="1">
-            </div>
-            <div class="bbe-input-group" style="justify-content: flex-end;">
-              <button type="button" class="bbe-add-submit-btn" id="bbe-add-submit-btn">+ Add Translation</button>
-            </div>
-          </div>
-          <div id="bbe-add-feedback" style="font-size:11px;margin-top:6px;min-height:16px;"></div>
-
-          <div id="bbe-modal-custom-list-wrap" style="margin-top:12px;display:none;">
-            <div class="bbe-input-label" style="margin-bottom:4px;">Your Custom Added Translations:</div>
-            <div class="bbe-custom-list" id="bbe-modal-custom-list"></div>
-          </div>
-        </div>
-
-        <div class="bbe-modal-card" style="padding:10px 14px;">
-          <details style="cursor:pointer;">
-            <summary style="font-weight:600;font-size:11.5px;color:var(--bbe-text-muted);user-select:none;">
-              💡 Power-User Tip: Browser Address Bar Search Shortcut (Brave / Chrome)
-            </summary>
-            <div style="margin-top:8px;font-size:11.5px;line-height:1.45;color:var(--bbe-text-muted);cursor:default;">
-              To type <code>b &lt;scripture&gt;</code> (e.g. <code>b John 3:16</code>) directly in your browser's address bar:
-              <ol style="margin:4px 0;padding-left:16px;">
-                <li>Open browser settings to <b>Site search</b> (<code>brave://settings/searchEngines</code>).</li>
-                <li>Add shortcut: <b>b</b> with URL: <code>https://www.bible.com/search/bible?q=%s</code></li>
-                <li>Deep Bible automatically catches scripture searches and jumps straight to the reader!</li>
-              </ol>
-            </div>
-          </details>
-        </div>
-      `;
-
-      // Populate shortcuts grid
-      const grid = bodyEl.querySelector("#bbe-modal-shortcuts-grid");
-      for (const key of Object.keys(allVers)) {
-        const v = allVers[key];
-        const hint = bbeGetKeyHintForVersion(key, currentShortcuts);
-
-        const row = document.createElement("div");
-        row.className = "bbe-shortcut-item";
-
-        const info = document.createElement("div");
-        info.className = "bbe-shortcut-info";
-        info.innerHTML = `
-          <div class="bbe-shortcut-name">${key}</div>
-          <div class="bbe-shortcut-abbr" title="${v.name}">${v.name}</div>
-        `;
-
-        const actions = document.createElement("div");
-        actions.className = "bbe-shortcut-actions";
-
-        const keyBtn = document.createElement("button");
-        keyBtn.type = "button";
-        keyBtn.className = "bbe-key-capture-btn" + (hint ? "" : " empty");
-        keyBtn.textContent = hint || "+";
-        keyBtn.title = hint ? `Shortcut: ${hint}. Click to change.` : "Click to set shortcut";
-
-        keyBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if (recordingKeyForVersion === key) {
-            recordingKeyForVersion = null;
-            keyBtn.classList.remove("recording");
-            keyBtn.textContent = hint || "+";
-          } else {
-            modal.querySelectorAll(".bbe-key-capture-btn.recording").forEach(b => {
-              b.classList.remove("recording");
-              b.textContent = b.dataset.key || "+";
-            });
-            recordingKeyForVersion = key;
-            keyBtn.classList.add("recording");
-            keyBtn.textContent = "...";
-            keyBtn.dataset.key = hint || "";
-            keyBtn.focus();
-          }
-        });
-
-        const clearBtn = document.createElement("button");
-        clearBtn.type = "button";
-        clearBtn.className = "bbe-clear-key-btn";
-        clearBtn.textContent = "✕";
-        clearBtn.title = "Clear shortcut";
-        clearBtn.addEventListener("click", async (e) => {
-          e.stopPropagation();
-          const updated = { ...(S.customShortcuts || BBE_KEY_MAP) };
-          for (const [k, mapped] of Object.entries(updated)) {
-            if (mapped === key) delete updated[k];
-          }
-          S.customShortcuts = updated;
-          await bbeSave({ customShortcuts: updated });
-          renderSettingsModalContent();
-          lastRenderKey = "";
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderToolbar(p);
-        });
-
-        actions.appendChild(keyBtn);
-        if (hint) actions.appendChild(clearBtn);
-
-        row.appendChild(info);
-        row.appendChild(actions);
-        grid.appendChild(row);
-      }
-
-      // Populate user translations list
-      const userTrans = S.userTranslations || {};
-      const userKeys = Object.keys(userTrans);
-      const customWrap = bodyEl.querySelector("#bbe-modal-custom-list-wrap");
-      const customList = bodyEl.querySelector("#bbe-modal-custom-list");
-      if (userKeys.length > 0) {
-        customWrap.style.display = "block";
-        for (const uk of userKeys) {
-          const item = document.createElement("div");
-          item.className = "bbe-custom-item";
-          item.innerHTML = `
-            <div style="font-size:12px;">
-              <b>${uk}</b> (ID: ${userTrans[uk].id}) — <span>${userTrans[uk].name}</span>
-            </div>
-            <button type="button" class="bbe-del-btn" title="Remove translation">🗑 Remove</button>
-          `;
-          item.querySelector(".bbe-del-btn").addEventListener("click", async () => {
-            delete userTrans[uk];
-            const updatedShortcuts = { ...(S.customShortcuts || BBE_KEY_MAP) };
-            for (const [k, mapped] of Object.entries(updatedShortcuts)) {
-              if (mapped === uk) delete updatedShortcuts[k];
-            }
-            const updatedToolbar = (S.toolbarVersions || []).filter(v => v !== uk);
-            await bbeSave({
-              userTranslations: userTrans,
-              customShortcuts: updatedShortcuts,
-              toolbarVersions: updatedToolbar
-            });
-            S.userTranslations = userTrans;
-            S.customShortcuts = updatedShortcuts;
-            S.toolbarVersions = updatedToolbar;
-            renderSettingsModalContent();
-            lastRenderKey = "";
-            const p = bbeParsePath(location.pathname, getAllVersions());
-            if (p) renderToolbar(p);
-          });
-          customList.appendChild(item);
-        }
-      }
-
-      // Add translation inputs & smart auto-detect
-      const smartInput = bodyEl.querySelector("#bbe-add-smart");
-      const abbrInput = bodyEl.querySelector("#bbe-add-abbr");
-      const idInput = bodyEl.querySelector("#bbe-add-id");
-      const nameInput = bodyEl.querySelector("#bbe-add-name");
-      const keyInput = bodyEl.querySelector("#bbe-add-key");
-      const addBtn = bodyEl.querySelector("#bbe-add-submit-btn");
-      const feedback = bodyEl.querySelector("#bbe-add-feedback");
-
-      let autoFillTimer = null;
-      const triggerAutoDetect = (sourceVal) => {
-        clearTimeout(autoFillTimer);
-        autoFillTimer = setTimeout(async () => {
-          const val = sourceVal || (smartInput ? smartInput.value.trim() : "") || (idInput ? idInput.value.trim() : "");
-          if (!val) return;
-          try {
-            const resolved = await bbeResolveTranslation(val);
-            if (resolved) {
-              if (resolved.short && abbrInput && !abbrInput.value) abbrInput.value = resolved.short;
-              if (resolved.id && idInput && !idInput.value) idInput.value = resolved.id;
-              if (resolved.name && nameInput && !nameInput.value) nameInput.value = resolved.name;
-              feedback.style.color = "#2563eb";
-              feedback.textContent = `✨ Detected: ${resolved.name} (${resolved.short}, ID: ${resolved.id})`;
-            }
-          } catch (e) {
-            // Passive detect, user may still be typing
-          }
-        }, 250);
-      };
-
-      if (smartInput) {
-        smartInput.addEventListener("input", () => triggerAutoDetect(smartInput.value.trim()));
-        smartInput.addEventListener("paste", () => setTimeout(() => triggerAutoDetect(smartInput.value.trim()), 50));
-      }
-      if (idInput) {
-        idInput.addEventListener("input", () => {
-          const v = idInput.value.trim();
-          if (/^\d+$/.test(v)) triggerAutoDetect(v);
-        });
-      }
-      if (abbrInput) {
-        abbrInput.addEventListener("change", () => {
-          const v = abbrInput.value.trim();
-          if (v && (!idInput.value || !nameInput.value)) triggerAutoDetect(v);
-        });
-      }
-
-      // Enter key on any input submits
-      [smartInput, abbrInput, idInput, nameInput, keyInput].forEach(inp => {
-        if (!inp) return;
-        inp.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            addBtn.click();
-          }
-        });
-      });
-
-      // Add translation submission
-      addBtn.addEventListener("click", async () => {
-        const smartVal = smartInput ? smartInput.value.trim() : "";
-        const rawAbbr = abbrInput.value.trim().toUpperCase();
-        const rawId = parseInt(idInput.value.trim(), 10);
-        const rawName = nameInput.value.trim();
-        const rawKey = keyInput.value.trim().toLowerCase();
-
-        feedback.style.color = "#64748b";
-        feedback.textContent = "⏳ Looking up translation details...";
-
-        try {
-          // Resolve from smart input OR explicit fields
-          let resolved = null;
-          if (smartVal) {
-            resolved = await bbeResolveTranslation(smartVal);
-          } else if (rawId || rawAbbr) {
-            resolved = await bbeResolveTranslation({ id: rawId, abbr: rawAbbr, name: rawName, shortcut: rawKey });
-          } else {
-            throw new Error("Please enter a Bible.com link, numeric ID (e.g. 149), or code (e.g. RVR1960).");
-          }
-
-          const finalAbbr = (rawAbbr || resolved.short).toUpperCase();
-          const finalId = rawId || resolved.id;
-          const finalName = rawName || resolved.name || finalAbbr;
-          const finalKey = rawKey || resolved.shortcut || "";
-
-          if (finalKey && typeof BBE_RESERVED_STUDY_KEYS !== "undefined" && BBE_RESERVED_STUDY_KEYS[finalKey]) {
-            throw new Error(`Key [${finalKey.toUpperCase()}] is reserved for ${BBE_RESERVED_STUDY_KEYS[finalKey]}. Please choose another shortcut key.`);
-          }
-
-          const updatedUserTrans = { ...(S.userTranslations || {}) };
-          updatedUserTrans[finalAbbr] = { id: finalId, name: finalName, short: finalAbbr };
-
-          const updatedShortcuts = { ...(S.customShortcuts || BBE_KEY_MAP) };
-          if (finalKey && /^[a-z0-9]$/.test(finalKey)) {
-            for (const [k, mapped] of Object.entries(updatedShortcuts)) {
-              if (mapped === finalAbbr) delete updatedShortcuts[k];
-            }
-            updatedShortcuts[finalKey] = finalAbbr;
-          }
-
-          const updatedToolbar = Array.from(new Set([...(S.toolbarVersions || []), finalAbbr]));
-
-          await bbeSave({
-            userTranslations: updatedUserTrans,
-            customShortcuts: updatedShortcuts,
-            toolbarVersions: updatedToolbar
-          });
-
-          S.userTranslations = updatedUserTrans;
-          S.customShortcuts = updatedShortcuts;
-          S.toolbarVersions = updatedToolbar;
-
-          feedback.style.color = "#16a34a";
-          feedback.textContent = `✓ Added ${finalAbbr} (${finalName})! Preloading for instant switching...`;
-
-          if (smartInput) smartInput.value = "";
-          abbrInput.value = "";
-          idInput.value = "";
-          nameInput.value = "";
-          keyInput.value = "";
-
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) {
-            preloadOtherVersions(p, true);
-            lastRenderKey = "";
-            renderToolbar(p);
-          }
-
-          setTimeout(() => { renderSettingsModalContent(); }, 900);
-        } catch (err) {
-          feedback.style.color = "#dc2626";
-          feedback.textContent = err.message || "Failed to resolve translation. Please check the ID or code.";
-        }
-      });
-    }
-
-    /* ---------------- TAB 2: Reading & Typography ---------------- */
-    else if (activeSettingsTab === "typography") {
-      const curTheme = S.readerTheme || "system";
-      const curFont = S.fontFamily || "serif";
-
-      let histOptionsHtml = "";
-      if (curTheme === "historical" && window.BBE_HIST) {
-        const H = window.BBE_HIST;
-        const hScene = S.historicalScene || "olive";
-        const hParch = S.historicalParchment || "scroll";
-        const hInk = S.historicalInk || "iron";
-        const sceneNames = { olive: "Olive Grove", library: "Ancient Library", ruins: "Classical Ruins", night: "Starlit Hills" };
-        const parchNames = { scroll: "Rolled Scroll", vellum: "Pale Vellum", papyrus: "Golden Papyrus", aged: "Weathered" };
-        const inkNames = { iron: "Iron-Gall Brown", sepia: "Soft Sepia", black: "Lampblack" };
-        histOptionsHtml = `
-        <div class="bbe-modal-card" id="bbe-hist-options">
-          <div class="bbe-modal-card-title">🏛 Historical Theme Options</div>
-          <div class="bbe-modal-hint">Compose your own manuscript: choose the world around the page, the material it is written on, and the ink.</div>
-
-          <div class="bbe-input-label" style="margin-top:8px;">Backdrop</div>
-          <div class="bbe-hist-picker" data-hist="historicalScene">
-            ${H.scenes.map(k => `<button type="button" class="bbe-hist-chip ${hScene === k ? "active" : ""}" data-value="${k}"><canvas class="bbe-hist-chip-canvas" width="320" height="180"></canvas><span>${sceneNames[k]}</span></button>`).join("")}
-          </div>
-
-          <div class="bbe-input-label" style="margin-top:12px;">Page</div>
-          <div class="bbe-hist-picker small" data-hist="historicalParchment">
-            ${H.parchments.map(k => `<button type="button" class="bbe-hist-chip ${hParch === k ? "active" : ""}" data-value="${k}"><canvas class="bbe-hist-chip-canvas" width="256" height="128"></canvas><span>${parchNames[k]}</span></button>`).join("")}
-          </div>
-
-          <div class="bbe-input-label" style="margin-top:12px;">Ink</div>
-          <div class="bbe-hist-picker small ink" data-hist="historicalInk">
-            ${["iron", "sepia", "black"].map(k => `<button type="button" class="bbe-hist-chip ink-${k} ${hInk === k ? "active" : ""}" data-value="${k}"><span>${inkNames[k]}</span></button>`).join("")}
-          </div>
-
-          <label class="bbe-hist-check"><input type="checkbox" id="bbe-hist-rubrics" ${S.historicalRubrics !== false ? "checked" : ""}> Rubrication — headings &amp; verse numbers in manuscript red</label>
-          <label class="bbe-hist-check"><input type="checkbox" id="bbe-hist-ornate" ${S.historicalOrnate !== false ? "checked" : ""}> Illuminated double-rule frame around the page</label>
-
-          <div class="bbe-modal-slider-row" style="margin-top:12px;">
-            <div class="bbe-modal-slider-header">
-              <span class="bbe-input-label">Backdrop Darkness</span>
-              <span class="bbe-modal-slider-val" id="bbe-hist-dim-val">${S.historicalSceneDim ?? 15}%</span>
-            </div>
-            <input type="range" id="bbe-hist-dim" min="0" max="100" step="5" value="${S.historicalSceneDim ?? 15}">
-          </div>
-        </div>`;
-      }
-
-      bodyEl.innerHTML = `
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Reading Theme &amp; Warm Paper</div>
-          <div class="bbe-modal-hint">Choose your palette. <b>System Default</b> matches Bible.com's native theme. Custom themes (like <b>Warm Paper</b>, <b>Clean Light</b>, or <b>Night Dark</b>) give specialized comfort.</div>
-
-          <div class="bbe-theme-cards-grid" id="bbe-modal-theme-grid">
-            <div class="bbe-theme-card system ${curTheme === 'system' ? 'active' : ''}" data-theme="system">
-              <div class="bbe-theme-card-title">⚙ System Default</div>
-              <div class="bbe-theme-card-desc">Bible.com's native appearance.</div>
-            </div>
-            <div class="bbe-theme-card sepia ${curTheme === 'sepia' ? 'active' : ''}" data-theme="sepia">
-              <div class="bbe-theme-card-title">📜 Warm Paper</div>
-              <div class="bbe-theme-card-desc">Soft ivory (#fbf0d9) with charcoal text. High comfort.</div>
-            </div>
-            <div class="bbe-theme-card light ${curTheme === 'light' ? 'active' : ''}" data-theme="light">
-              <div class="bbe-theme-card-title">☀️ Clean Light</div>
-              <div class="bbe-theme-card-desc">Pure crisp white with clean contrast.</div>
-            </div>
-            <div class="bbe-theme-card dark ${curTheme === 'dark' ? 'active' : ''}" data-theme="dark">
-              <div class="bbe-theme-card-title">🌙 Night Dark</div>
-              <div class="bbe-theme-card-desc">Deep slate dark theme for nighttime reading.</div>
-            </div>
-            <div class="bbe-theme-card oled ${curTheme === 'oled' ? 'active' : ''}" data-theme="oled">
-              <div class="bbe-theme-card-title">🖤 OLED Pitch Black</div>
-              <div class="bbe-theme-card-desc">True #000000 black. Max contrast, zero battery drain.</div>
-            </div>
-            <div class="bbe-theme-card blue ${curTheme === 'blue' ? 'active' : ''}" data-theme="blue">
-              <div class="bbe-theme-card-title">🌊 Midnight Navy</div>
-              <div class="bbe-theme-card-desc">Deep ocean navy (#0b1329) with ice-blue text. Serene.</div>
-            </div>
-            <div class="bbe-theme-card green ${curTheme === 'green' ? 'active' : ''}" data-theme="green">
-              <div class="bbe-theme-card-title">🌿 Sage Herb</div>
-              <div class="bbe-theme-card-desc">Soothing sage paper (#f0f5ee) with forest text. Anti-fatigue.</div>
-            </div>
-            <div class="bbe-theme-card historical ${curTheme === 'historical' ? 'active' : ''}" data-theme="historical">
-              <div class="bbe-theme-card-title">🏛 Historical</div>
-              <div class="bbe-theme-card-desc">Ancient scroll on a faded olive grove, library or ruins backdrop.</div>
-            </div>
-          </div>
-        </div>
-
-        ${histOptionsHtml}
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Classic Book Typography &amp; Font Family</div>
-          <div class="bbe-modal-hint">Select a typography style. <b>Classic Book Serif</b> gives Bible reading the feel of a premium printed Bible.</div>
-
-          <div class="bbe-font-cards-grid" id="bbe-modal-font-grid">
-            <div class="bbe-font-card serif ${curFont === 'serif' ? 'active' : ''}" data-font="serif">
-              <div class="bbe-font-card-title">📖 Classic Book Serif</div>
-              <div class="bbe-font-card-desc">Georgia, Merriweather, Garamond, Bookerly</div>
-            </div>
-            <div class="bbe-font-card sans ${curFont === 'sans' ? 'active' : ''}" data-font="sans">
-              <div class="bbe-font-card-title">🔤 Modern Sans</div>
-              <div class="bbe-font-card-desc">Clean, contemporary digital typography (Inter/System)</div>
-            </div>
-            <div class="bbe-font-card mono ${curFont === 'mono' ? 'active' : ''}" data-font="mono">
-              <div class="bbe-font-card-title">⌨ Warm Monospace</div>
-              <div class="bbe-font-card-desc">Structured, editorial typewriter aesthetic</div>
-            </div>
-            <div class="bbe-font-card dyslexic ${curFont === 'dyslexic' ? 'active' : ''}" data-font="dyslexic">
-              <div class="bbe-font-card-title">👓 Dyslexia Friendly</div>
-              <div class="bbe-font-card-desc">OpenDyslexic with weighted baselines to prevent letter flipping</div>
-            </div>
-          </div>
-
-          <div class="bbe-typography-preview" id="bbe-typography-preview">
-            “For God so loved the world, that he gave his only Son, that whoever believes in him should not perish but have eternal life.”
-            <div style="font-size:11px;opacity:0.75;margin-top:4px;">— John 3:16 (Live Typography Preview)</div>
-          </div>
-        </div>
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Column Width &amp; Sizing</div>
-          <div class="bbe-modal-hint">Adjust the layout and sizing of the scripture text. Changes apply instantly live.</div>
-
-          <div class="bbe-modal-slider-row">
-            <div class="bbe-modal-slider-header">
-              <span class="bbe-input-label">Column Width</span>
-              <span class="bbe-modal-slider-val" id="bbe-modal-width-val">${S.columnWidth || 950}px</span>
-            </div>
-            <input type="range" id="bbe-modal-width-slider" min="500" max="2200" step="25" value="${S.columnWidth || 950}">
-            <div style="display:flex;gap:6px;margin-top:4px;">
-              <button type="button" class="bbe-preview-btn" data-preset="750">750px</button>
-              <button type="button" class="bbe-preview-btn" data-preset="950">950px</button>
-              <button type="button" class="bbe-preview-btn" data-preset="1200">1200px</button>
-              <button type="button" class="bbe-preview-btn" data-preset="1800">Max (1800px)</button>
-            </div>
-
-            <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,0,0,0.06);">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                <div class="bbe-modal-card-title" style="margin:0;">🎯 Floating Toolbar Quick Pill</div>
-                <button type="button" class="bbe-preview-btn bbe-preview-btn-primary" id="bbe-restore-typo-pills-btn" title="Restore reader appearance controls to the floating top pill">
-                  ↺ Restore Aa Pill
-                </button>
-              </div>
-
-              <label class="bbe-modal-row" style="margin-top:6px;">
-                <div>
-                  <div class="bbe-modal-row-label">Show Reader Appearance Menu on Floating Pill (Aa ▾)</div>
-                  <div class="bbe-modal-row-hint">Display the unified Aa reader menu (Column Width, Text Size, Font Family, Theme Swatches).</div>
-                </div>
-                <input type="checkbox" id="bbe-modal-aa-menu-typo-check" ${S.showAaMenu !== false ? 'checked' : ''}>
-              </label>
-            </div>
-          </div>
-
-          <div class="bbe-modal-slider-row" style="margin-top:12px;">
-            <div class="bbe-modal-slider-header">
-              <span class="bbe-input-label">Text Size</span>
-              <span class="bbe-modal-slider-val" id="bbe-modal-font-val">${S.fontSize || 100}%</span>
-            </div>
-            <input type="range" id="bbe-modal-font-slider" min="70" max="180" step="5" value="${S.fontSize || 100}">
-          </div>
-
-          <div class="bbe-modal-slider-row" style="margin-top:12px;">
-            <div class="bbe-modal-slider-header">
-              <span class="bbe-input-label">Line Spacing</span>
-              <span class="bbe-modal-slider-val" id="bbe-modal-line-val">${S.lineHeight || 1.8}</span>
-            </div>
-            <input type="range" id="bbe-modal-line-slider" min="1.3" max="2.4" step="0.1" value="${S.lineHeight || 1.8}">
-          </div>
-        </div>
-      `;
-
-      // Theme cards click
-      bodyEl.querySelectorAll(".bbe-theme-card").forEach(card => {
-        card.addEventListener("click", async () => {
-          bodyEl.querySelectorAll(".bbe-theme-card").forEach(c => c.classList.remove("active"));
-          card.classList.add("active");
-          const theme = card.dataset.theme;
-          S.readerTheme = theme;
-          syncDomClasses();
-          await bbeSave({ readerTheme: theme });
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderToolbar(p);
-          renderSettingsModalContent(); // show / hide the Historical options card
-        });
-      });
-
-      // Historical theme options
-      bodyEl.querySelectorAll(".bbe-hist-picker").forEach(group => {
-        group.querySelectorAll(".bbe-hist-chip").forEach(chip => {
-          chip.addEventListener("click", async () => {
-            group.querySelectorAll(".bbe-hist-chip").forEach(c => c.classList.remove("active"));
-            chip.classList.add("active");
-            S[group.dataset.hist] = chip.dataset.value;
-            syncDomClasses();
-            await bbeSave({ [group.dataset.hist]: chip.dataset.value });
-          });
-        });
-      });
-      // Fill Historical thumbnails once their artwork has been rendered.
-      // Draw directly onto a <canvas> inside each chip so Bible.com's img-src CSP can never block it.
-      const fillHistChip = (group, kind, value) => {
-        window.BBE_HIST.load(kind, value).then(a => {
-          const live = document.querySelector(`#bbe-modal-tab-body .bbe-hist-picker[data-hist="${group}"] .bbe-hist-chip[data-value="${value}"]`);
-          if (!live) return;
-          if (kind === "parchment") live.style.backgroundColor = a.base;
-          const cv = live.querySelector("canvas.bbe-hist-chip-canvas");
-          const src = a.thumbCanvas || a.canvas;
-          if (cv && src) {
-            cv.getContext("2d").drawImage(src, 0, 0, cv.width, cv.height);
-          }
-        });
-      };
-      bodyEl.querySelectorAll('.bbe-hist-picker[data-hist="historicalScene"] .bbe-hist-chip').forEach(chip => fillHistChip("historicalScene", "scene", chip.dataset.value));
-      bodyEl.querySelectorAll('.bbe-hist-picker[data-hist="historicalParchment"] .bbe-hist-chip').forEach(chip => fillHistChip("historicalParchment", "parchment", chip.dataset.value));
-      const histRub = bodyEl.querySelector("#bbe-hist-rubrics");
-      if (histRub) histRub.addEventListener("change", async () => { S.historicalRubrics = histRub.checked; syncDomClasses(); await bbeSave({ historicalRubrics: histRub.checked }); });
-      const histOrn = bodyEl.querySelector("#bbe-hist-ornate");
-      if (histOrn) histOrn.addEventListener("change", async () => { S.historicalOrnate = histOrn.checked; syncDomClasses(); await bbeSave({ historicalOrnate: histOrn.checked }); });
-      const histDim = bodyEl.querySelector("#bbe-hist-dim");
-      if (histDim) {
-        histDim.addEventListener("input", () => {
-          const v = Number(histDim.value);
-          S.historicalSceneDim = v;
-          bodyEl.querySelector("#bbe-hist-dim-val").textContent = v + "%";
-          syncDomClasses();
-        });
-        histDim.addEventListener("change", () => bbeSave({ historicalSceneDim: Number(histDim.value) }));
-      }
-
-      // Font cards click
-      bodyEl.querySelectorAll(".bbe-font-card").forEach(card => {
-        card.addEventListener("click", async () => {
-          bodyEl.querySelectorAll(".bbe-font-card").forEach(c => c.classList.remove("active"));
-          card.classList.add("active");
-          const font = card.dataset.font;
-          S.fontFamily = font;
-          syncDomClasses();
-          await bbeSave({ fontFamily: font });
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderToolbar(p);
-        });
-      });
-
-      const widthSlider = bodyEl.querySelector("#bbe-modal-width-slider");
-      const widthVal = bodyEl.querySelector("#bbe-modal-width-val");
-      const fontSlider = bodyEl.querySelector("#bbe-modal-font-slider");
-      const fontVal = bodyEl.querySelector("#bbe-modal-font-val");
-      const lineSlider = bodyEl.querySelector("#bbe-modal-line-slider");
-      const lineVal = bodyEl.querySelector("#bbe-modal-line-val");
-
-      const updateWidth = async (val) => {
-        S.columnWidth = val;
-        widthSlider.value = val;
-        widthVal.textContent = val + "px";
-        syncDomClasses();
-        await bbeSave({ columnWidth: val });
-        const p = bbeParsePath(location.pathname, getAllVersions());
-        if (p) renderToolbar(p);
-      };
-
-      widthSlider.addEventListener("input", () => {
-        const val = Number(widthSlider.value);
-        widthVal.textContent = val + "px";
-        S.columnWidth = val;
-        syncDomClasses();
-      });
-      widthSlider.addEventListener("change", () => updateWidth(Number(widthSlider.value)));
-
-      bodyEl.querySelectorAll("[data-preset]").forEach(b => {
-        b.addEventListener("click", () => updateWidth(Number(b.dataset.preset)));
-      });
-
-      const restoreTypoPillsBtn = bodyEl.querySelector("#bbe-restore-typo-pills-btn");
-      if (restoreTypoPillsBtn) {
-        restoreTypoPillsBtn.addEventListener("click", async () => {
-          S.showAaMenu = true;
-          await bbeSave({ showAaMenu: true });
-          showToast("✓ Restored Aa Reader Menu to toolbar!");
-          lastRenderKey = "";
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderToolbar(p);
-          renderSettingsModalContent();
-        });
-      }
-
-      const aaMenuTypoCheck = bodyEl.querySelector("#bbe-modal-aa-menu-typo-check");
-      if (aaMenuTypoCheck) {
-        aaMenuTypoCheck.addEventListener("change", async () => {
-          S.showAaMenu = aaMenuTypoCheck.checked;
-          await bbeSave({ showAaMenu: aaMenuTypoCheck.checked });
-          showToast(aaMenuTypoCheck.checked ? "✓ Aa menu restored to floating pill" : "Aa menu retired to Settings");
-          lastRenderKey = "";
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderToolbar(p);
-        });
-      }
-
-      fontSlider.addEventListener("input", () => {
-        const val = Number(fontSlider.value);
-        fontVal.textContent = val + "%";
-        S.fontSize = val;
-        syncDomClasses();
-      });
-      fontSlider.addEventListener("change", async () => {
-        const val = Number(fontSlider.value);
-        S.fontSize = val;
-        syncDomClasses();
-        await bbeSave({ fontSize: val });
-      });
-
-      lineSlider.addEventListener("input", () => {
-        const val = Number(lineSlider.value);
-        lineVal.textContent = val;
-        S.lineHeight = val;
-        syncDomClasses();
-      });
-      lineSlider.addEventListener("change", async () => {
-        const val = Number(lineSlider.value);
-        S.lineHeight = val;
-        syncDomClasses();
-        await bbeSave({ lineHeight: val });
-      });
-    }
-
-    /* ---------------- TAB 3: Navigation & Reading Position ---------------- */
-    else if (activeSettingsTab === "animation") {
-      bodyEl.innerHTML = `
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Instant Navigation &amp; Reading Position</div>
-          <div class="bbe-modal-hint">Configure zero-delay adjacent chapter switching, arrow key shortcuts, and reading position anchoring.</div>
-
-          <label class="bbe-modal-row" style="margin-top:6px;">
-            <div>
-              <div class="bbe-modal-row-label">Anchor Reading Position</div>
-              <div class="bbe-modal-row-hint">Locks your active verse in viewport on translation switches to eliminate jarring jumps</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-pos-check">
-          </label>
-
-          <label class="bbe-modal-row" style="margin-top:6px;">
-            <div>
-              <div class="bbe-modal-row-label">Preload Adjacent Chapters</div>
-              <div class="bbe-modal-row-hint">Pre-fetches next and previous chapters in the background for zero-delay instant switching</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-preload-chapters-check">
-          </label>
-
-          <label class="bbe-modal-row" style="margin-top:6px;">
-            <div>
-              <div class="bbe-modal-row-label">Arrow Keys Navigate Chapters</div>
-              <div class="bbe-modal-row-hint">Use Left &amp; Right arrow keys (← / →) to move to previous and next chapters instantly</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-arrow-keys-check">
-          </label>
-        </div>
-      `;
-
-      const posCheck = bodyEl.querySelector("#bbe-modal-pos-check");
-      const preloadChaptersCheck = bodyEl.querySelector("#bbe-modal-preload-chapters-check");
-      const arrowKeysCheck = bodyEl.querySelector("#bbe-modal-arrow-keys-check");
-
-      posCheck.checked = S.preserveReadingPosition !== false;
-      posCheck.addEventListener("change", async () => {
-        S.preserveReadingPosition = posCheck.checked;
-        await bbeSave({ preserveReadingPosition: posCheck.checked });
-      });
-
-      preloadChaptersCheck.checked = S.preloadAdjacentChapters !== false;
-      preloadChaptersCheck.addEventListener("change", async () => {
-        S.preloadAdjacentChapters = preloadChaptersCheck.checked;
-        await bbeSave({ preloadAdjacentChapters: preloadChaptersCheck.checked });
-        if (preloadChaptersCheck.checked) preloadAdjacentChapters();
-      });
-
-      arrowKeysCheck.checked = S.chapterArrowKeys !== false;
-      arrowKeysCheck.addEventListener("change", async () => {
-        S.chapterArrowKeys = arrowKeysCheck.checked;
-        await bbeSave({ chapterArrowKeys: arrowKeysCheck.checked });
-      });
-    }
-
-    /* ---------------- TAB 4: Study Commentary, TSK & Lexicon ---------------- */
-    else if (activeSettingsTab === "study") {
-      bodyEl.innerHTML = `
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Study Drawer &amp; Treasury of Scripture Knowledge (TSK)</div>
-          <div class="bbe-modal-hint">Configure verse study commentaries and cross-reference research tools.</div>
-
-          <div class="bbe-add-grid" style="margin-bottom:10px;">
-            <div class="bbe-input-group">
-              <label class="bbe-input-label">Default Study Tab</label>
-              <select id="bbe-modal-study-tab-select" class="bbe-modal-input">
-                <option value="commentary">📖 Scripture Commentary</option>
-                <option value="crossref">🔗 Cross-References (TSK)</option>
-                <option value="wordstudy">🔤 Word Study / Strong's Lexicon</option>
-              </select>
-            </div>
-            <div class="bbe-input-group">
-              <label class="bbe-input-label">Drawer Dock Position</label>
-              <select id="bbe-modal-dock-select" class="bbe-modal-input">
-                <option value="bottom">Bottom Panel (Logos Bible style)</option>
-                <option value="right">Right Sidebar</option>
-              </select>
-            </div>
-          </div>
-
-          <label class="bbe-modal-row">
-            <div>
-              <div class="bbe-modal-row-label">Verse Hover Badges</div>
-              <div class="bbe-modal-row-hint">Shows a subtle 💬 icon when hovering over verses to quickly open study notes</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-badges-check">
-          </label>
-        </div>
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Commentary Sources &amp; Display Order (26 Sources)</div>
-          <div class="bbe-modal-hint">
-            Includes <b>4 Modern</b> external commentaries plus <b>22 Classic</b> commentators parsed automatically from BibleHub. Toggle any source on/off, or click <b>Top</b> / <b>↑</b> / <b>↓</b> to choose which displays first.
-          </div>
-
-          <div class="bbe-comm-order-toolbar">
-            <input type="text" id="bbe-modal-comm-filter" class="bbe-modal-input bbe-comm-filter-input" placeholder="Filter commentators (e.g. Henry, Guzik, Calvin...)">
-            <button type="button" id="bbe-modal-comm-reset-btn" class="bbe-comm-reset-btn">↺ Reset Order &amp; Show All</button>
-          </div>
-          <div id="bbe-modal-comm-list" class="bbe-comm-order-list"></div>
-        </div>
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Strong's Greek &amp; Hebrew Lexicon / Word Study</div>
-          <div class="bbe-modal-hint">Uncover original Greek (NT) and Hebrew (OT) root words directly on Bible text with Strong's definitions and occurrences.</div>
-
-          <label class="bbe-modal-row" style="margin-bottom:10px;">
-            <div>
-              <div class="bbe-modal-row-label">Word Study Mode</div>
-              <div class="bbe-modal-row-hint">Makes scripture words clickable/hoverable for Strong's lexicon lookups (Shortcut: <b>W</b>)</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-wordstudy-check">
-          </label>
-
-          <div class="bbe-input-group">
-            <label class="bbe-input-label">Tooltip Trigger Action</label>
-            <select id="bbe-modal-wordstudy-trigger" class="bbe-modal-input">
-              <option value="hover">Hover over word (unobtrusive tooltip)</option>
-              <option value="click">Click on word only</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">📋 Smart Verse Copy &amp; Clean Text</div>
-          <div class="bbe-modal-hint">Quickly quote and copy scripture. Strips verse numbers and headings by default with no reference at the end.</div>
-
-          <label class="bbe-modal-row" style="margin-bottom:8px;">
-            <div>
-              <div class="bbe-modal-row-label">Smart Verse Copy</div>
-              <div class="bbe-modal-row-hint">Enables 1-click 📋 copy badge on verse hover and passage selection floating bar</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-smartcopy-check">
-          </label>
-
-          <label class="bbe-modal-row" style="margin-bottom:10px;">
-            <div>
-              <div class="bbe-modal-row-label">Clean Highlight Copy (Ctrl+C)</div>
-              <div class="bbe-modal-row-hint">Automatically strip verse numbers &amp; headings when copying highlighted text in scripture view</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-copyclean-check">
-          </label>
-
-
-          <div class="bbe-modal-hint" style="font-weight:700;text-transform:uppercase;font-size:10px;margin-bottom:6px;letter-spacing:0.04em;">Include / Exclude Elements:</div>
-
-          <label class="bbe-modal-row" style="margin-bottom:6px;">
-            <div>
-              <div class="bbe-modal-row-label">Include Scripture Reference</div>
-              <div class="bbe-modal-row-hint">Append scripture reference (e.g. Genesis 1:1) at end (Off by default)</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-copyref-check">
-          </label>
-
-          <label class="bbe-modal-row" style="margin-bottom:6px;">
-            <div>
-              <div class="bbe-modal-row-label">Include Translation Code</div>
-              <div class="bbe-modal-row-hint">Append translation abbreviation (e.g. NIV, ESV)</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-copyver-check">
-          </label>
-
-          <label class="bbe-modal-row" style="margin-bottom:6px;">
-            <div>
-              <div class="bbe-modal-row-label">Include Verse Numbers</div>
-              <div class="bbe-modal-row-hint">Keep verse numbers (1, 2, 3) in copied text (Off by default)</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-copyvnum-check">
-          </label>
-
-          <label class="bbe-modal-row" style="margin-bottom:6px;">
-            <div>
-              <div class="bbe-modal-row-label">Include Section Headings</div>
-              <div class="bbe-modal-row-hint">Keep section titles and headings in copied text (Off by default)</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-copyheading-check">
-          </label>
-
-          <div class="bbe-typography-preview" id="bbe-modal-copy-preview-box" style="margin-top:8px;">
-            <div class="bbe-preview-tag" style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#64748b;font-weight:700;margin-bottom:4px;">Live Copy Preview</div>
-            <div id="bbe-modal-copy-preview-text" style="font-size:12px;white-space:pre-wrap;line-height:1.6;"></div>
-          </div>
-        </div>
-
-
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">🖍️ YouVersion Color Highlighting</div>
-          <div class="bbe-modal-hint">Highlight meaningful scripture directly using YouVersion's native highlighting system. Highlights sync automatically to the YouVersion mobile app and account, and remain visible whether or not the extension is active. Press <b>H</b> on selection to highlight instantly with your default color.</div>
-
-          <label class="bbe-modal-row" style="margin-top:8px;">
-            <div>
-              <div class="bbe-modal-row-label">Enable YouVersion Highlighting</div>
-              <div class="bbe-modal-row-hint">Adds color highlighter palettes to selection action bar and verse hover badges</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-highlighting-check">
-          </label>
-
-          <label class="bbe-modal-row" style="margin-top:4px;">
-            <div>
-              <div class="bbe-modal-row-label">Verse Highlighter Badges</div>
-              <div class="bbe-modal-row-hint">Shows 🖍️ button next to verse numbers on hover</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-highlight-badges-check">
-          </label>
-
-          <div class="bbe-input-group" style="margin-top:8px;margin-bottom:8px;">
-            <label class="bbe-input-label">Default Highlighter Color</label>
-            <select id="bbe-modal-default-hl-color" class="bbe-modal-input">
-              <option value="fffe00">🟡 Yellow (#fffe00)</option>
-              <option value="5dff79">🟢 Mint (#5dff79)</option>
-              <option value="00d6ff">🔵 Sky Blue (#00d6ff)</option>
-              <option value="ffc66f">🟠 Amber (#ffc66f)</option>
-              <option value="ff95ef">🌸 Rose (#ff95ef)</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">About the Integrated Study Tools</div>
-          <div style="font-size:12px;color:#475569;line-height:1.5;">
-            • <b>Commentary</b>: Parses and displays expositions from Matthew Henry, John Calvin, Pulpit Commentary, Jamieson-Fausset-Brown (JFB), Keil &amp; Delitzsch, Albert Barnes, John Gill, and more.<br>
-            • <b>Treasury of Scripture Knowledge (TSK)</b>: Connects over 500,000 cross-references throughout Scripture grouped by thematic phrase, with live verse previews and one-click jumping.<br>
-            • <b>Strong's Lexicon &amp; Interlinear</b>: Full Greek and Hebrew lexicon entries with transliteration, pronunciation, morphological part of speech, definitions, and Bible-wide occurrence frequencies.<br>
-            • <b>Smart Verse Copy</b>: Instantly quotes clean passages via selection action bar or drawer copy button.<br>
-            • <b>Private Personal Notes</b>: Personal reflections, observations, and prayers attached to verses, with YouVersion app synchronization and markdown export.
-          </div>
-        </div>
-      `;
-
-      const studyTabSelect = bodyEl.querySelector("#bbe-modal-study-tab-select");
-      const dockSelect = bodyEl.querySelector("#bbe-modal-dock-select");
-      const badgesCheck = bodyEl.querySelector("#bbe-modal-badges-check");
-      const wordStudyCheck = bodyEl.querySelector("#bbe-modal-wordstudy-check");
-      const wordStudyTrigger = bodyEl.querySelector("#bbe-modal-wordstudy-trigger");
-      const copyCheck = bodyEl.querySelector("#bbe-modal-smartcopy-check");
-      const copyCleanCheck = bodyEl.querySelector("#bbe-modal-copyclean-check");
-      const copyRefCheck = bodyEl.querySelector("#bbe-modal-copyref-check");
-      const copyVerCheck = bodyEl.querySelector("#bbe-modal-copyver-check");
-      const copyVNumCheck = bodyEl.querySelector("#bbe-modal-copyvnum-check");
-      const copyHeadingCheck = bodyEl.querySelector("#bbe-modal-copyheading-check");
-      const copyPreviewText = bodyEl.querySelector("#bbe-modal-copy-preview-text");
-
-      const updateCopyPreview = () => {
-        if (!copyPreviewText) return;
-        const incVer = copyVerCheck ? copyVerCheck.checked : (S.copyIncludeVersion === true);
-        const incVNum = copyVNumCheck ? copyVNumCheck.checked : (S.copyIncludeVerseNumbers === true);
-        const incHeading = copyHeadingCheck ? copyHeadingCheck.checked : (S.copyIncludeHeadings === true);
-
-        const p = bbeParsePath(location.pathname, getAllVersions());
-        const curVer = incVer ? (p ? (p.versionName || p.abbr) : "ESV") : "";
-
-        let sample = "";
-        if (incHeading) sample += "[God’s Sovereign Choice]\n";
-        if (incVNum) sample += "1 ";
-        sample += "I am speaking the truth in Christ—I am not lying; my conscience bears me witness in the Holy Spirit—";
-
-        const formatted = formatVerseCopy(sample, p ? p.book : "ROM", p ? p.chapter : "9", 1, 1, curVer);
-        copyPreviewText.textContent = formatted;
-      };
-
-      if (copyCheck) {
-        copyCheck.checked = S.smartVerseCopy !== false;
-        copyCheck.addEventListener("change", async () => {
-          S.smartVerseCopy = copyCheck.checked;
-          await bbeSave({ smartVerseCopy: copyCheck.checked });
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderVerseBadges(p, true);
-        });
-      }
-
-      if (copyCleanCheck) {
-        copyCleanCheck.checked = S.copyCleanSelection !== false;
-        copyCleanCheck.addEventListener("change", async () => {
-          S.copyCleanSelection = copyCleanCheck.checked;
-          await bbeSave({ copyCleanSelection: copyCleanCheck.checked });
-        });
-      }
-
-
-      if (copyRefCheck) {
-        copyRefCheck.checked = S.copyIncludeReference === true;
-        copyRefCheck.addEventListener("change", async () => {
-          S.copyIncludeReference = copyRefCheck.checked;
-          await bbeSave({ copyIncludeReference: copyRefCheck.checked });
-          updateCopyPreview();
-        });
-      }
-
-      if (copyVerCheck) {
-        copyVerCheck.checked = S.copyIncludeVersion === true;
-        copyVerCheck.addEventListener("change", async () => {
-          S.copyIncludeVersion = copyVerCheck.checked;
-          await bbeSave({ copyIncludeVersion: copyVerCheck.checked });
-          updateCopyPreview();
-        });
-      }
-
-      if (copyVNumCheck) {
-        copyVNumCheck.checked = S.copyIncludeVerseNumbers === true;
-        copyVNumCheck.addEventListener("change", async () => {
-          S.copyIncludeVerseNumbers = copyVNumCheck.checked;
-          await bbeSave({ copyIncludeVerseNumbers: copyVNumCheck.checked });
-          updateCopyPreview();
-        });
-      }
-
-      if (copyHeadingCheck) {
-        copyHeadingCheck.checked = S.copyIncludeHeadings === true;
-        copyHeadingCheck.addEventListener("change", async () => {
-          S.copyIncludeHeadings = copyHeadingCheck.checked;
-          await bbeSave({ copyIncludeHeadings: copyHeadingCheck.checked });
-          updateCopyPreview();
-        });
-      }
-
-      updateCopyPreview();
-
-      studyTabSelect.value = S.defaultStudyTab || "commentary";
-      studyTabSelect.addEventListener("change", async () => {
-        S.defaultStudyTab = studyTabSelect.value;
-        await bbeSave({ defaultStudyTab: studyTabSelect.value });
-      });
-
-      dockSelect.value = S.commentaryDock || "bottom";
-      dockSelect.addEventListener("change", async () => {
-        S.commentaryDock = dockSelect.value;
-        await bbeSave({ commentaryDock: dockSelect.value });
-        const drawer = document.getElementById("bbe-drawer");
-        if (drawer) applyDrawerDockClasses(drawer);
-      });
-
-      badgesCheck.checked = S.showCommentaryBadges !== false;
-      badgesCheck.addEventListener("change", async () => {
-        S.showCommentaryBadges = badgesCheck.checked;
-        await bbeSave({ showCommentaryBadges: badgesCheck.checked });
-        const p = bbeParsePath(location.pathname, getAllVersions());
-        if (p) renderVerseBadges(p, true);
-      });
-
-      const commFilterInput = bodyEl.querySelector("#bbe-modal-comm-filter");
-      const commResetBtn = bodyEl.querySelector("#bbe-modal-comm-reset-btn");
-      const commListEl = bodyEl.querySelector("#bbe-modal-comm-list");
-
-      const renderModalCommSources = () => {
-        if (!commListEl) return;
-        const q = (commFilterInput ? commFilterInput.value : "").trim().toLowerCase();
-        const ordered = bbeGetOrderedCommentarySources(S);
-        commListEl.replaceChildren();
-
-        let visibleRank = 0;
-        ordered.forEach((src, idx) => {
-          if (src.enabled) visibleRank += 1;
-          if (q && !src.label.toLowerCase().includes(q) && !src.desc.toLowerCase().includes(q)) return;
-
-          const row = document.createElement("div");
-          row.className = "bbe-comm-order-row" + (src.enabled ? "" : " is-hidden");
-
-          const rankBadge = document.createElement("span");
-          rankBadge.className = "bbe-comm-rank";
-          rankBadge.textContent = src.enabled ? `#${visibleRank}` : "Off";
-
-          const info = document.createElement("div");
-          info.className = "bbe-comm-order-info";
-          const titleLine = document.createElement("div");
-          titleLine.className = "bbe-comm-order-title";
-          titleLine.textContent = src.label + " ";
-          const groupTag = document.createElement("span");
-          groupTag.className = "bbe-comm-source-badge " + (src.group === "modern" ? "is-modern" : "is-classic");
-          groupTag.textContent = src.group === "modern" ? "Modern" : "BibleHub";
-          titleLine.appendChild(groupTag);
-          const descLine = document.createElement("div");
-          descLine.className = "bbe-comm-order-desc";
-          descLine.textContent = src.desc;
-          info.appendChild(titleLine);
-          info.appendChild(descLine);
-
-          const controls = document.createElement("div");
-          controls.className = "bbe-comm-order-controls";
-
-          const makeOrderBtn = (label, title, action, disabled) => {
-            const btn = document.createElement("button");
-            btn.type = "button";
-            btn.className = "bbe-comm-order-btn";
-            btn.textContent = label;
-            btn.title = title;
-            btn.disabled = disabled;
-            btn.addEventListener("click", async () => {
-              const patch = bbeBuildCommentaryOrderPatch(action, src.key, S);
-              Object.assign(S, patch);
-              await bbeSave(patch);
-              renderModalCommSources();
-              refreshOpenCommentaryDrawer(false);
-            });
-            return btn;
-          };
-
-          controls.appendChild(makeOrderBtn("Top", "Move to #1 (display first)", "top", idx === 0));
-          controls.appendChild(makeOrderBtn("↑", "Move up", "up", idx === 0));
-          controls.appendChild(makeOrderBtn("↓", "Move down", "down", idx === ordered.length - 1));
-
-          const toggle = document.createElement("input");
-          toggle.type = "checkbox";
-          toggle.checked = src.enabled;
-          toggle.title = src.enabled ? `Hide ${src.label}` : `Show ${src.label}`;
-          toggle.addEventListener("change", async () => {
-            const patch = bbeBuildCommentaryTogglePatch(src.key, toggle.checked, S);
-            Object.assign(S, patch);
-            await bbeSave(patch);
-            renderModalCommSources();
-            refreshOpenCommentaryDrawer(toggle.checked && src.group === "modern");
-          });
-          controls.appendChild(toggle);
-
-          row.appendChild(rankBadge);
-          row.appendChild(info);
-          row.appendChild(controls);
-          commListEl.appendChild(row);
-        });
-      };
-
-      if (commFilterInput) commFilterInput.addEventListener("input", renderModalCommSources);
-      if (commResetBtn) {
-        commResetBtn.addEventListener("click", async () => {
-          const patch = bbeBuildCommentaryOrderPatch("reset", null, S);
-          Object.assign(S, patch);
-          await bbeSave(patch);
-          if (commFilterInput) commFilterInput.value = "";
-          renderModalCommSources();
-          refreshOpenCommentaryDrawer(true);
-          showToast("↺ Commentary order & visibility reset");
-        });
-      }
-      renderModalCommSources();
-
-      wordStudyCheck.checked = !!S.wordStudyMode;
-      wordStudyCheck.addEventListener("change", async () => {
-        S.wordStudyMode = wordStudyCheck.checked;
-        await bbeSave({ wordStudyMode: wordStudyCheck.checked });
-        syncDomClasses();
-        const p = bbeParsePath(location.pathname, getAllVersions());
-        if (p) {
-          if (S.wordStudyMode) enhanceVersesForWordStudy(p);
-          renderToolbar(p);
-        }
-      });
-
-      wordStudyTrigger.value = S.wordStudyTrigger || "hover";
-      wordStudyTrigger.addEventListener("change", async () => {
-        S.wordStudyTrigger = wordStudyTrigger.value;
-        await bbeSave({ wordStudyTrigger: wordStudyTrigger.value });
-      });
-
-
-
-      const hlCheck = bodyEl.querySelector("#bbe-modal-highlighting-check");
-      const hlBadgesCheck = bodyEl.querySelector("#bbe-modal-highlight-badges-check");
-      const defaultHlColor = bodyEl.querySelector("#bbe-modal-default-hl-color");
-
-      if (hlCheck) {
-        hlCheck.checked = S.youversionHighlighting !== false;
-        hlCheck.addEventListener("change", async () => {
-          S.youversionHighlighting = hlCheck.checked;
-          await bbeSave({ youversionHighlighting: hlCheck.checked });
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderVerseBadges(p, true);
-        });
-      }
-
-      if (hlBadgesCheck) {
-        hlBadgesCheck.checked = S.showVerseHighlightBadges !== false;
-        hlBadgesCheck.addEventListener("change", async () => {
-          S.showVerseHighlightBadges = hlBadgesCheck.checked;
-          await bbeSave({ showVerseHighlightBadges: hlBadgesCheck.checked });
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderVerseBadges(p, true);
-        });
-      }
-
-      if (defaultHlColor) {
-        defaultHlColor.value = S.defaultHighlightColor || "fffe00";
-        defaultHlColor.addEventListener("change", async () => {
-          S.defaultHighlightColor = defaultHlColor.value;
-          await bbeSave({ defaultHighlightColor: defaultHlColor.value });
-        });
-      }
-    }
-
-    /* ---------------- TAB 5: Floating Toolbar ---------------- */
-    else if (activeSettingsTab === "toolbar") {
-      bodyEl.innerHTML = `
-        <div class="bbe-modal-card" style="border: 1.5px solid #3b82f6; background: rgba(59, 130, 246, 0.04);">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <div>
-              <div class="bbe-modal-card-title" style="margin:0;color:#2563eb;">🎯 Floating Toolbar Quick Pill</div>
-              <div class="bbe-modal-hint" style="margin:2px 0 0 0;">Restore or toggle quick buttons directly on your floating study pill.</div>
-            </div>
-            <button type="button" class="bbe-preview-btn bbe-preview-btn-primary" id="bbe-restore-all-toolbar-pills-btn" title="Restore quick controls to the floating toolbar">
-              ↺ Restore Aa Pill
-            </button>
-          </div>
-
-          <label class="bbe-modal-row" style="margin-top:10px;">
-            <div>
-              <div class="bbe-modal-row-label">Show Reader Appearance Menu on Floating Pill (Aa ▾)</div>
-              <div class="bbe-modal-row-hint">Display the unified Aa reader menu (Column Width, Text Size, Font Family, Theme Swatches). Uncheck to retire to Settings.</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-aa-menu-check" ${S.showAaMenu !== false ? 'checked' : ''}>
-          </label>
-        </div>
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Floating Top Bar Behavior</div>
-          <div class="bbe-modal-hint">Control how the top pill floats, dims, and auto-hides while reading scripture.</div>
-
-          <div class="bbe-input-group" style="margin-bottom:10px;">
-            <label class="bbe-input-label">Toolbar Floating &amp; Reading Behavior</label>
-            <select id="bbe-modal-toolbar-behavior" class="bbe-modal-input">
-              <option value="smart">Smart Auto-Hide (Glides away on scroll down, reveals on scroll-up or top hover)</option>
-              <option value="static">Static (Sits above chapter, scrolls naturally with text)</option>
-              <option value="floating">Always Floating (Stays sticky)</option>
-            </select>
-          </div>
-
-          <label class="bbe-modal-row">
-            <div>
-              <div class="bbe-modal-row-label">Auto-Dim Floating Bar</div>
-              <div class="bbe-modal-row-hint">Dimmable quiet reading mode: bar fades to 15% opacity while reading and blooms to 100% on mouse hover</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-autodim-check">
-          </label>
-        </div>
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Top Pill Translation Buttons</div>
-          <div class="bbe-modal-hint">Click translations to toggle whether they appear on the floating top pill:</div>
-          <div class="bbe-modal-pills" id="bbe-modal-toolbar-pills"></div>
-        </div>
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Parallel Translation Comparison</div>
-          <div class="bbe-modal-hint">Configure layout and default translations for side-by-side or verse-by-verse comparison:</div>
-          <div class="bbe-input-group" style="margin-top:8px;margin-bottom:10px;">
-            <label class="bbe-input-label">Comparison View Layout</label>
-            <select id="bbe-modal-compare-layout" class="bbe-modal-input">
-              <option value="columns">🏛 Side-by-Side Columns (Whole Chapters)</option>
-              <option value="interleaved">📑 Interleaved Parallel View (Verse-by-Verse)</option>
-            </select>
-          </div>
-          <div class="bbe-modal-hint" style="margin-bottom:6px;">Default translations to compare:</div>
-          <div class="bbe-modal-pills" id="bbe-modal-compare-pills"></div>
-        </div>
-      `;
-
-      const behaviorSelect = bodyEl.querySelector("#bbe-modal-toolbar-behavior");
-      const autodimCheck = bodyEl.querySelector("#bbe-modal-autodim-check");
-      const pillsContainer = bodyEl.querySelector("#bbe-modal-toolbar-pills");
-      const compareLayoutSelect = bodyEl.querySelector("#bbe-modal-compare-layout");
-      const comparePillsContainer = bodyEl.querySelector("#bbe-modal-compare-pills");
-      const aaMenuCheck = bodyEl.querySelector("#bbe-modal-aa-menu-check");
-
-      const restoreToolbarPillsBtn = bodyEl.querySelector("#bbe-restore-all-toolbar-pills-btn");
-      if (restoreToolbarPillsBtn) {
-        restoreToolbarPillsBtn.addEventListener("click", async () => {
-          S.showAaMenu = true;
-          await bbeSave({ showAaMenu: true });
-          showToast("✓ Aa reader appearance pill restored to default!");
-          lastRenderKey = "";
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderToolbar(p);
-          renderSettingsModalContent();
-        });
-      }
-
-      if (aaMenuCheck) {
-        aaMenuCheck.addEventListener("change", async () => {
-          S.showAaMenu = aaMenuCheck.checked;
-          await bbeSave({ showAaMenu: aaMenuCheck.checked });
-          showToast(aaMenuCheck.checked ? "✓ Aa menu restored to floating pill" : "Aa menu retired to Settings");
-          lastRenderKey = "";
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderToolbar(p);
-        });
-      }
-
-      compareLayoutSelect.value = S.compareLayout || "columns";
-      compareLayoutSelect.addEventListener("change", async () => {
-        S.compareLayout = compareLayoutSelect.value;
-        await bbeSave({ compareLayout: compareLayoutSelect.value });
-      });
-
-      behaviorSelect.value = S.toolbarBehavior || "smart";
-      behaviorSelect.addEventListener("change", async () => {
-        S.toolbarBehavior = behaviorSelect.value;
-        await bbeSave({ toolbarBehavior: behaviorSelect.value });
-        syncDomClasses();
-        if (S.toolbarBehavior === "static" || S.toolbarBehavior === "floating") {
-          showBar();
-        }
-      });
-
-      autodimCheck.checked = S.autoDimBar !== false;
-      autodimCheck.addEventListener("change", async () => {
-        S.autoDimBar = autodimCheck.checked;
-        await bbeSave({ autoDimBar: autodimCheck.checked });
-        syncDomClasses();
-      });
-
-      const selectedToolbar = new Set(S.toolbarVersions || ["ESV", "NIV", "NASB", "NLT", "BSB", "NKJV", "KJV"]);
-      for (const key of Object.keys(allVers)) {
-        const pill = document.createElement("button");
-        pill.type = "button";
-        pill.className = "bbe-modal-pill" + (selectedToolbar.has(key) ? " active" : "");
-        pill.textContent = key;
-        pill.title = allVers[key].name;
-
-        pill.addEventListener("click", async () => {
-          if (selectedToolbar.has(key)) {
-            if (selectedToolbar.size > 1) {
-              selectedToolbar.delete(key);
-              pill.classList.remove("active");
-            }
-          } else {
-            selectedToolbar.add(key);
-            pill.classList.add("active");
-          }
-          const ordered = Object.keys(allVers).filter(k => selectedToolbar.has(k));
-          S.toolbarVersions = ordered;
-          await bbeSave({ toolbarVersions: ordered });
-          lastRenderKey = "";
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderToolbar(p);
-        });
-
-        pillsContainer.appendChild(pill);
-      }
-
-      const selectedCompare = new Set(S.compareVersions || ["NIV", "ESV"]);
-      for (const key of Object.keys(allVers)) {
-        const pill = document.createElement("button");
-        pill.type = "button";
-        pill.className = "bbe-modal-pill" + (selectedCompare.has(key) ? " active" : "");
-        pill.textContent = key;
-        pill.title = allVers[key].name;
-
-        pill.addEventListener("click", async () => {
-          if (selectedCompare.has(key)) {
-            if (selectedCompare.size > 1) {
-              selectedCompare.delete(key);
-              pill.classList.remove("active");
-            }
-          } else {
-            selectedCompare.add(key);
-            pill.classList.add("active");
-          }
-          const ordered = Object.keys(allVers).filter(k => selectedCompare.has(k));
-          S.compareVersions = ordered;
-          await bbeSave({ compareVersions: ordered });
-        });
-
-        comparePillsContainer.appendChild(pill);
-      }
-    }
-
-    /* ---------------- TAB 6: Distraction-Free Controls ---------------- */
-    else if (activeSettingsTab === "distractions") {
-      bodyEl.innerHTML = `
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Distraction-Free Controls</div>
-          <div class="bbe-modal-hint">Toggle individual website elements to create your ideal peaceful scripture sanctuary.</div>
-
-          <div style="display:flex;gap:6px;margin-bottom:10px;">
-            <button type="button" class="bbe-preview-btn" id="bbe-modal-hide-all">👁 Hide All Distractions</button>
-            <button type="button" class="bbe-preview-btn" id="bbe-modal-show-all">Show All Website Elements</button>
-          </div>
-
-          <label class="bbe-modal-row">
-            <span>Top Site Header</span>
-            <input type="checkbox" id="m-hideHeader">
-          </label>
-          <label class="bbe-modal-row">
-            <span>Left Navigation Rail / Sidebar</span>
-            <input type="checkbox" id="m-hideSidebar">
-          </label>
-          <label class="bbe-modal-row">
-            <span>Promotional Distraction Cards (Videos &amp; Verses)</span>
-            <input type="checkbox" id="m-hideDistractionCards">
-          </label>
-          <label class="bbe-modal-row">
-            <span>Site Footer</span>
-            <input type="checkbox" id="m-hideFooter">
-          </label>
-          <label class="bbe-modal-row">
-            <span>Bottom Floating Selection Drawer</span>
-            <input type="checkbox" id="m-hideBottomBar">
-          </label>
-          <label class="bbe-modal-row">
-            <span>Version Copyright Notice</span>
-            <input type="checkbox" id="m-hideCopyright">
-          </label>
-          <label class="bbe-modal-row">
-            <span>Footnote Letters &amp; Markers</span>
-            <input type="checkbox" id="m-hideFootnotes">
-          </label>
-          <label class="bbe-modal-row">
-            <span>Section Headings</span>
-            <input type="checkbox" id="m-hideHeadings">
-          </label>
-          <label class="bbe-modal-row">
-            <span>Verse Numbers</span>
-            <input type="checkbox" id="m-hideVerseNumbers">
-          </label>
-          <label class="bbe-modal-row">
-            <span>Completely Hide Floating Toolbar</span>
-            <input type="checkbox" id="m-hideSwitcher">
-          </label>
-        </div>
-      `;
-
-      const distFields = [
-        "hideHeader", "hideSidebar", "hideDistractionCards", "hideFooter",
-        "hideBottomBar", "hideCopyright", "hideFootnotes", "hideHeadings",
-        "hideVerseNumbers", "hideSwitcher"
-      ];
-
-      distFields.forEach(f => {
-        const chk = bodyEl.querySelector("#m-" + f);
-        if (chk) {
-          chk.checked = !!S[f];
-          chk.addEventListener("change", async () => {
-            S[f] = chk.checked;
-            await bbeSave({ [f]: chk.checked });
-            syncDomClasses();
-          });
-        }
-      });
-
-      bodyEl.querySelector("#bbe-modal-hide-all")?.addEventListener("click", async () => {
-        const patch = {
-          hideHeader: true, hideSidebar: true, hideDistractionCards: true,
-          hideFooter: true, hideBottomBar: true, hideCopyright: true
-        };
-        Object.assign(S, patch);
-        await bbeSave(patch);
-        syncDomClasses();
-        renderSettingsModalContent();
-      });
-
-      bodyEl.querySelector("#bbe-modal-show-all")?.addEventListener("click", async () => {
-        const patch = {
-          hideHeader: false, hideSidebar: false, hideDistractionCards: false,
-          hideFooter: false, hideBottomBar: false, hideCopyright: false,
-          hideFootnotes: false, hideHeadings: false, hideVerseNumbers: false, hideSwitcher: false
-        };
-        Object.assign(S, patch);
-        await bbeSave(patch);
-        syncDomClasses();
-        renderSettingsModalContent();
-      });
-    }
-  }
-
-  function renderShortcutsModalContent() {
-    renderSettingsModalContent();
-  }
-
-  function openSettingsModal(tab = "shortcuts") {
-    activeSettingsTab = tab || "shortcuts";
-    ensureSettingsModal();
-    renderSettingsModalContent();
-    isSettingsModalOpen = true;
-    isShortcutsModalOpen = true;
-    const backdrop = document.getElementById("bbe-modal-backdrop");
-    const modal = document.getElementById("bbe-shortcuts-modal");
-    if (backdrop) backdrop.classList.add("open");
-    if (modal) modal.classList.add("open");
-  }
-
-  function openShortcutsModal() {
-    openSettingsModal("shortcuts");
   }
 
   /* ---------------- Main Lifecycle Loop ---------------- */
@@ -6878,7 +5285,6 @@
       S.fontSize,
       S.lineHeight,
       S.enableKeyShortcuts,
-      S.showCommentaryBadges,
       S.commentaryDock,
       S.toolbarBehavior,
       S.autoDimBar,
@@ -6899,7 +5305,6 @@
       JSON.stringify(S.userTranslations || {}),
       isDrawerOpen,
       isDrawerFullscreen,
-      isShortcutsModalOpen,
       S.compareOn,
       S.compareLayout,
       (S.compareVersions || []).join(),

@@ -36,12 +36,11 @@ var BBE_DEFAULTS = {
   quickStudyShowCount: 0,   // Number of times quick study passage suggestions have been shown (auto-retires after 3 times)
   youversionHighlighting: true,// Native YouVersion Color Highlighting (Yellow, Mint, Sky Blue, Amber, Rose)
   showVerseHighlightBadges: true,// Show highlighter badge on verse hover
-  defaultHighlightColor: "fffe00",// Default highlight color ("fffe00" Yellow | "5dff79" Mint | "00d6ff" Blue | "ffc66f" Amber | "ff95ef" Rose)
+  defaultHighlightColor: "fffe00",// Default highlight color ("fffe00" Yellow | "5dff79" Green | "00d6ff" Blue | "ffc66f" Orange | "ff95ef" Pink)
   toolbarVersions: ["ESV", "NIV", "NASB", "NLT", "BSB", "NKJV", "KJV"], // Translations shown in top pill
   compareOn: false,         // Side-by-side translation comparison
   compareVersions: ["NIV", "ESV"],
   compareLayout: "columns", // "columns" (Side-by-side whole chapters) | "interleaved" (Verse-by-verse parallel comparison)
-  showCommentaryBadges: true,// Unobtrusive hover badges on verses to open commentary
   defaultStudyTab: "commentary", // "commentary" | "crossref" | "wordstudy"
   commentaryDock: "bottom",  // "bottom" (Logos style, default) | "right" (Sidebar)
   commentaryBottomHeight: null, // Custom height (px) for bottom-docked study drawer (null = 44vh default)

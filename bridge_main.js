@@ -101,10 +101,15 @@
 
   const COLOR_RGB_TO_HEX = {
     'rgb(255, 254, 0)': 'fffe00',
+    'rgb(253, 239, 197)': 'fffe00',
     'rgb(93, 255, 121)': '5dff79',
+    'rgb(217, 233, 206)': '5dff79',
     'rgb(0, 214, 255)': '00d6ff',
+    'rgb(186, 221, 255)': '00d6ff',
     'rgb(255, 198, 111)': 'ffc66f',
-    'rgb(255, 149, 239)': 'ff95ef'
+    'rgb(252, 215, 182)': 'ffc66f',
+    'rgb(255, 149, 239)': 'ff95ef',
+    'rgb(245, 200, 214)': 'ff95ef'
   };
 
   function getAllHighlights() {
@@ -183,11 +188,11 @@
 
       // Also apply direct styling to matching verse DOM nodes for instant visual feedback
       const hexMap = {
-        'fffe00': 'rgba(255, 254, 0, 0.45)',
-        '5dff79': 'rgba(93, 255, 121, 0.45)',
-        '00d6ff': 'rgba(0, 214, 255, 0.45)',
-        'ffc66f': 'rgba(255, 198, 111, 0.45)',
-        'ff95ef': 'rgba(255, 149, 239, 0.45)'
+        'fffe00': '#fdefc5',
+        '5dff79': '#d9e9ce',
+        '00d6ff': '#baddff',
+        'ffc66f': '#fcd7b6',
+        'ff95ef': '#f5c8d6'
       };
       usfms.forEach(u => {
         const vEl = document.querySelector(`[data-usfm="${u}"]`);

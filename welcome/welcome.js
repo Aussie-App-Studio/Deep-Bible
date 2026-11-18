@@ -13,7 +13,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const columnWidthVal = document.getElementById('columnWidthVal');
   const enableKeyShortcuts = document.getElementById('enableKeyShortcuts');
   const distractionFreeToggle = document.getElementById('distractionFreeToggle');
-  const showCommentaryBadges = document.getElementById('showCommentaryBadges');
   const defaultStudyTabSelect = document.getElementById('defaultStudyTabSelect');
 
   // Preview elements
@@ -24,7 +23,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const mockVerse1 = document.getElementById('mockVerse1');
   const mockVerse2 = document.getElementById('mockVerse2');
   const mockVersionPills = document.querySelectorAll('.db-vbtn');
-  const mockBadgeGroups = document.querySelectorAll('.db-hover-badge-group');
 
   // Action buttons
   const openDashboardBtn = document.getElementById('openDashboardBtn');
@@ -133,9 +131,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (distractionFreeToggle) {
     distractionFreeToggle.checked = config.hideHeader !== false;
   }
-  if (showCommentaryBadges) {
-    showCommentaryBadges.checked = config.showCommentaryBadges !== false;
-  }
   if (defaultStudyTabSelect && config.defaultStudyTab) {
     defaultStudyTabSelect.value = config.defaultStudyTab;
   }
@@ -163,13 +158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       mockPassageWrap.style.margin = '0 auto';
     }
 
-    // 4. Study badges visibility
-    const showBadges = config.showCommentaryBadges !== false;
-    mockBadgeGroups.forEach((group) => {
-      group.style.display = showBadges ? 'inline-flex' : 'none';
-    });
-
-    // 5. Active translation verses
+    // 4. Active translation verses
     const currentPassage = SCRIPTURE_TRANSLATIONS[activeTranslation] || SCRIPTURE_TRANSLATIONS.ESV;
     if (mockActiveTag) mockActiveTag.textContent = currentPassage.tag;
     if (mockVerse1) mockVerse1.textContent = currentPassage.v1;
@@ -218,10 +207,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       hideBottomBar: isChecked,
       hideCopyright: isChecked
     });
-  });
-
-  showCommentaryBadges?.addEventListener('change', () => {
-    saveSetting({ showCommentaryBadges: showCommentaryBadges.checked });
   });
 
   defaultStudyTabSelect?.addEventListener('change', () => {

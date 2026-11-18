@@ -312,66 +312,6 @@
       gap: 8px;
     }
 
-    /* Sidebar Feedback Card */
-    .sidebar-feedback-card {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      text-decoration: none;
-      color: inherit;
-      transition: all 0.15s ease;
-      cursor: pointer;
-      margin-bottom: 4px;
-    }
-
-    .sidebar-feedback-card:hover {
-      background: var(--primary-light);
-      border-color: var(--primary);
-    }
-
-    .sfc-icon {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      background: var(--primary-light);
-      color: var(--primary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      transition: all 0.15s ease;
-    }
-
-    .sidebar-feedback-card:hover .sfc-icon {
-      background: var(--primary);
-      color: #ffffff;
-    }
-
-    .sfc-content {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      min-width: 0;
-    }
-
-    .sfc-title {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text);
-      line-height: 1.2;
-    }
-
-    .sfc-sub {
-      font-size: 10.5px;
-      color: var(--primary);
-      font-weight: 500;
-      line-height: 1.2;
-    }
-
     /* External Nav Item */
     .nav-item.nav-item-external {
       text-decoration: none;
@@ -671,6 +611,8 @@
     }
 
     input.form-input {
+      box-sizing: border-box;
+      min-width: 0;
       height: 32px;
       padding: 0 10px;
       font-size: 12px;
@@ -843,6 +785,488 @@
       border-color: var(--primary);
       box-shadow: 0 0 0 3px var(--primary-ring);
       background: var(--card-bg);
+    }
+
+    @font-face {
+      font-family: "OpenDyslexic";
+      src: url("fonts/OpenDyslexic-Regular.woff") format("woff");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "OpenDyslexic";
+      src: url("fonts/OpenDyslexic-Bold.woff") format("woff");
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "OpenDyslexic";
+      src: url("fonts/OpenDyslexic-Italic.woff") format("woff");
+      font-weight: 400;
+      font-style: italic;
+      font-display: swap;
+    }
+
+    /* Visual Theme & Font Card Grids */
+    .popup-card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .popup-theme-card,
+    .popup-font-card {
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: var(--card-bg);
+      color: var(--text);
+      text-align: left;
+      font: inherit;
+    }
+    .popup-theme-card:hover,
+    .popup-font-card:hover {
+      transform: translateY(-1px);
+      border-color: #93c5fd;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+    .popup-theme-card.active,
+    .popup-font-card.active {
+      border-color: var(--primary) !important;
+      box-shadow: 0 0 0 2px var(--primary-ring) !important;
+    }
+    .popup-theme-card.system {
+      background: linear-gradient(135deg, #f8fafc 62%, #1e293b 62%);
+      border-color: #cbd5e1;
+      color: #0f172a;
+    }
+    .popup-theme-card.system .popup-card-title,
+    .popup-theme-card.system .popup-card-desc {
+      color: #0f172a;
+      text-shadow: 0 0 6px #ffffff, 0 0 3px #ffffff;
+    }
+    .popup-theme-card.system .popup-card-desc {
+      color: #1e293b;
+      font-weight: 500;
+    }
+    .popup-theme-card.sepia {
+      background: #fbf0d9;
+      color: #2c2825;
+      border-color: #dfceab;
+    }
+    .popup-theme-card.sepia.active {
+      border-color: #8c531b !important;
+      box-shadow: 0 0 0 2px rgba(140, 83, 27, 0.28) !important;
+    }
+    .popup-theme-card.light {
+      background: #ffffff;
+      color: #0f172a;
+      border-color: #cbd5e1;
+    }
+    .popup-theme-card.dark {
+      background: #181a20;
+      color: #f1f5f9;
+      border-color: #2e3440;
+    }
+    .popup-theme-card.dark.active {
+      border-color: #60a5fa !important;
+      box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.32) !important;
+    }
+    .popup-theme-card.oled {
+      background: #000000;
+      color: #e0e0e0;
+      border-color: #282828;
+    }
+    .popup-theme-card.oled.active {
+      border-color: #38bdf8 !important;
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.32) !important;
+    }
+    .popup-theme-card.blue {
+      background: #0b1329;
+      color: #d8e2fd;
+      border-color: #1e3056;
+    }
+    .popup-theme-card.blue.active {
+      border-color: #38bdf8 !important;
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.32) !important;
+    }
+    .popup-theme-card.green {
+      background: #f0f5ee;
+      color: #1f2e23;
+      border-color: #c8dcce;
+    }
+    .popup-theme-card.green.active {
+      border-color: #16a34a !important;
+      box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.32) !important;
+    }
+    .popup-theme-card.historical {
+      border: 4px solid transparent;
+      background:
+        linear-gradient(#e6cf9f, #e6cf9f) padding-box,
+        linear-gradient(135deg, #8d9a74 0%, #5a6a3e 45%, #3b2d1c 100%) border-box;
+      color: #2b1d10;
+    }
+    .popup-theme-card.historical.active {
+      border-color: #8b2a1a !important;
+      box-shadow: 0 0 0 2px rgba(139, 42, 26, 0.35) !important;
+    }
+    .popup-card-title {
+      font-size: 13px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .popup-card-desc {
+      font-size: 11px;
+      opacity: 0.82;
+      line-height: 1.35;
+    }
+    .popup-font-card.serif { font-family: "Merriweather", Georgia, Garamond, serif; }
+    .popup-font-card.sans { font-family: system-ui, -apple-system, sans-serif; }
+    .popup-font-card.mono { font-family: ui-monospace, "SF Mono", monospace; }
+    .popup-font-card.dyslexic {
+      font-family: "OpenDyslexic", "Lexend", "Verdana", sans-serif;
+      letter-spacing: 0.02em;
+    }
+
+    /* Historical Backdrop, Page & Ink Artwork Pickers */
+    .popup-hist-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      margin-top: 12px;
+      margin-bottom: 6px;
+    }
+    .popup-hist-picker {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .popup-hist-picker.small {
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    }
+    .popup-hist-chip {
+      position: relative;
+      height: 82px;
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      overflow: hidden;
+      padding: 0;
+      background: #e6cf9f;
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .popup-hist-chip:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+    .popup-hist-chip.active {
+      border-color: #8b2a1a;
+      box-shadow: 0 0 0 2px rgba(139, 42, 26, 0.35);
+    }
+    .popup-hist-chip-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .popup-hist-chip span {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      z-index: 1;
+      padding: 14px 6px 5px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff6dc;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+      background: linear-gradient(transparent, rgba(0, 0, 0, 0.72));
+    }
+    .popup-hist-picker.small .popup-hist-chip {
+      height: 48px;
+    }
+    .popup-hist-picker.small .popup-hist-chip span {
+      color: #2b1d10;
+      text-shadow: none;
+      background: linear-gradient(transparent, rgba(255, 244, 214, 0.8));
+    }
+    .popup-hist-picker.ink .popup-hist-chip {
+      background: #e6cf9f;
+    }
+    .popup-hist-picker.ink .popup-hist-chip span {
+      background: none;
+      top: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      font-size: 13px;
+      font-family: Georgia, serif;
+    }
+    .popup-hist-chip.ink-iron span { color: #2b1d10; }
+    .popup-hist-chip.ink-sepia span { color: #4a3322; }
+    .popup-hist-chip.ink-black span { color: #17110c; }
+
+    /* Live Preview Boxes & Preset Buttons */
+    .popup-preview-box {
+      margin-top: 12px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      transition: all 0.2s ease;
+      line-height: 1.8;
+    }
+    .popup-preset-btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .popup-preset-btn {
+      padding: 5px 10px;
+      font-size: 11.5px;
+      font-weight: 600;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .popup-preset-btn:hover {
+      border-color: var(--primary);
+      background: var(--primary-light);
+      color: var(--primary);
+    }
+
+    /* Quick Highlight Color Swatches */
+    .popup-hl-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .popup-hl-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      min-width: 92px;
+      text-align: right;
+    }
+    .popup-hl-swatches {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-full);
+    }
+    .popup-hl-swatch {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 2px solid rgba(15, 23, 42, 0.14);
+      cursor: pointer;
+      padding: 0;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    .popup-hl-swatch:hover {
+      transform: scale(1.14);
+    }
+    .popup-hl-swatch.active {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 4px var(--primary);
+      transform: scale(1.08);
+    }
+
+    /* Prominent Review & Rating Banner */
+    .review-cta-card {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.13) 0%, var(--card-bg) 55%, rgba(245, 158, 11, 0.06) 100%);
+      border: 1.5px solid rgba(245, 158, 11, 0.45);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.1);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    }
+
+    .review-cta-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #f59e0b, #d97706, #fbbf24);
+    }
+
+    .review-cta-card:hover {
+      border-color: rgba(245, 158, 11, 0.72);
+      box-shadow: 0 6px 20px rgba(245, 158, 11, 0.16);
+    }
+
+    .review-cta-left {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .review-cta-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(217, 119, 6, 0.12));
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .review-cta-content {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .review-cta-badge-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .review-cta-stars {
+      font-size: 11px;
+      letter-spacing: 1px;
+      color: #f59e0b;
+      line-height: 1;
+    }
+
+    .review-cta-badge {
+      font-size: 10.5px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #b45309;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .review-cta-badge {
+        color: #fbbf24;
+      }
+    }
+
+    .review-cta-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.3;
+    }
+
+    .review-cta-quote {
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .review-cta-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .review-btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 10px 16px;
+      border-radius: 10px;
+      background: #d97706;
+      color: #ffffff;
+      font-size: 12.5px;
+      font-weight: 700;
+      text-decoration: none;
+      box-shadow: 0 3px 10px rgba(217, 119, 6, 0.32);
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .review-btn-primary:hover {
+      background: #b45309;
+      transform: translateY(-1px);
+      box-shadow: 0 5px 14px rgba(217, 119, 6, 0.42);
+    }
+
+    .review-btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 7px 14px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .review-btn-secondary:hover {
+      background: var(--primary-light);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    @media (max-width: 820px) {
+      .review-cta-card {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 16px;
+        gap: 14px;
+      }
+
+      .review-cta-actions {
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+
+      .review-btn-primary,
+      .review-btn-secondary {
+        flex: 1 1 auto;
+      }
     }
 
     /* Toast Notification */
@@ -1037,39 +1461,20 @@
           <span class="nav-icon">💬</span>
           <span>Study &amp; Commentaries</span>
         </button>
-        <button type="button" class="nav-item" data-category="notes">
-          <span class="nav-icon">🖍️</span>
-          <span>YouVersion Highlights</span>
-        </button>
         <button type="button" class="nav-item" data-category="copy">
           <span class="nav-icon">📋</span>
-          <span>Smart Verse Copy</span>
+          <span>Copy &amp; Clipboard</span>
         </button>
         <button type="button" class="nav-item" data-category="distractions">
           <span class="nav-icon">👁</span>
           <span>Distraction-Free</span>
         </button>
-        <button type="button" class="nav-item" data-category="compare">
-          <span class="nav-icon">🏛</span>
-          <span>Parallel Compare</span>
-        </button>
-        <a href="https://forms.gle/FN8w2g7MakzTS9GZ9" target="_blank" rel="noopener noreferrer" class="nav-item nav-item-external" id="navFeedbackLink" title="Send feedback, report a bug, or request a feature">
-          <span class="nav-icon">💬</span>
-          <span>Feedback &amp; Issues ↗</span>
+        <a href="https://chromewebstore.google.com/search/Deep%20Bible%3A%20Study%20Tools%20for%20YouVersion" target="_blank" rel="noopener noreferrer" class="nav-item nav-item-external" id="navRateLink" title="Rate Deep Bible on Chrome Web Store">
+          <span class="nav-icon">⭐</span>
+          <span>Rate Extension ↗</span>
         </a>
 
         <div class="sidebar-footer">
-          <a href="https://forms.gle/FN8w2g7MakzTS9GZ9" target="_blank" rel="noopener noreferrer" class="sidebar-feedback-card" id="sidebarFeedbackLink" title="Submit thoughts, bug reports, and suggestions">
-            <div class="sfc-icon">
-              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-              </svg>
-            </div>
-            <div class="sfc-content">
-              <span class="sfc-title">Feedback &amp; Bugs</span>
-              <span class="sfc-sub">Help improve Deep Bible ↗</span>
-            </div>
-          </a>
           <a href="welcome/welcome.html" target="_blank" rel="noopener noreferrer" class="reset-btn" style="text-decoration:none;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px;background:var(--primary-light);color:var(--primary);border-color:var(--primary-ring);margin-bottom:8px;" title="Open Welcome Guide & About">
             <span>👋 Welcome &amp; About ↗</span>
           </a>
@@ -1081,6 +1486,32 @@
 
       <!-- Content Pane -->
       <main class="content-pane" id="bbe-content-pane">
+
+        <!-- ================= PROMINENT REVIEW CTA ================= -->
+        <section class="review-cta-card" id="popupReviewBanner" aria-label="Rate Deep Bible on Extension Store">
+          <div class="review-cta-left">
+            <div class="review-cta-icon" aria-hidden="true">⭐</div>
+            <div class="review-cta-content">
+              <div class="review-cta-badge-row">
+                <span class="review-cta-stars" aria-hidden="true">★★★★★</span>
+                <span class="review-cta-badge">Help Pastors &amp; Students Discover Deep Bible</span>
+              </div>
+              <h2 class="review-cta-title">Would you consider leaving an honest review?</h2>
+              <p class="review-cta-quote">
+                “If this app is helpful to you and you think it will be helpful to others, please rate it on the extension store. Google heavily weights reviews when deciding how much to highlight or hide extensions, and it would be nice for many people to benefit from the work.”
+              </p>
+            </div>
+          </div>
+          <div class="review-cta-actions">
+            <a href="https://chromewebstore.google.com/search/Deep%20Bible%3A%20Study%20Tools%20for%20YouVersion" target="_blank" rel="noopener noreferrer" class="review-btn-primary" id="popupRateBtn" title="Rate Deep Bible on Chrome Web Store">
+              <span>⭐ Rate on Extension Store</span>
+              <span>↗</span>
+            </a>
+            <a href="https://forms.gle/FN8w2g7MakzTS9GZ9" target="_blank" rel="noopener noreferrer" class="review-btn-secondary" id="popupReviewFeedbackBtn" title="Send suggestions or report bugs">
+              <span>💬 Suggestions &amp; Bugs ↗</span>
+            </a>
+          </div>
+        </section>
 
         <!-- ================= 1. SHORTCUTS & SWAPPING ================= -->
         <section class="settings-section" data-section="shortcuts">
@@ -1171,6 +1602,23 @@
                 <span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 8px;border-radius:6px;background:var(--bg);border:1px solid var(--border);font-weight:700;font-size:12px;">← / →</span>
               </div>
             </div>
+
+            <div class="setting-row" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-subtle);border-bottom:none;padding-bottom:0;">
+              <div class="setting-info">
+                <div class="setting-label">Default Quick Highlight Color</div>
+                <div class="hint-text">Color used when pressing <code>H</code> on selected text (highlights sync directly to your YouVersion cloud account when signed in)</div>
+              </div>
+              <div class="popup-hl-controls">
+                <span class="popup-hl-name" id="popupHlColorName">Yellow</span>
+                <div class="popup-hl-swatches" id="popupHlSwatches">
+                  <button type="button" class="popup-hl-swatch" data-hl-color="fffe00" style="background-color:#fdefc5;" title="Yellow"></button>
+                  <button type="button" class="popup-hl-swatch" data-hl-color="5dff79" style="background-color:#d9e9ce;" title="Green"></button>
+                  <button type="button" class="popup-hl-swatch" data-hl-color="00d6ff" style="background-color:#baddff;" title="Blue"></button>
+                  <button type="button" class="popup-hl-swatch" data-hl-color="ffc66f" style="background-color:#fcd7b6;" title="Orange"></button>
+                  <button type="button" class="popup-hl-swatch" data-hl-color="ff95ef" style="background-color:#f5c8d6;" title="Pink"></button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Shortcuts Table -->
@@ -1184,18 +1632,30 @@
             <!-- Add Custom Translation Details -->
             <details style="border-top:1px solid var(--border);padding-top:12px;margin-top:8px;">
               <summary style="font-weight:600;font-size:12px;cursor:pointer;color:var(--primary);user-select:none;">
-                + Add Custom Translation (Amplified, CSB, Spanish, etc.)
+                + Add Custom Translation (GNV, JUB, MSG, RVR1960, etc.)
               </summary>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
-                <input type="text" id="popupAddSmart" class="form-input" placeholder="⚡ Quick Fill: Paste URL (bible.com/bible/149/...), enter ID, or code" style="grid-column: span 2;">
-                <input type="text" id="popupAddAbbr" class="form-input" placeholder="Abbreviation (auto-fills)" maxlength="12">
-                <input type="number" id="popupAddId" class="form-input" placeholder="Version ID (auto-fills)" min="1">
-                <input type="text" id="popupAddName" class="form-input" placeholder="Full Translation Name (optional - auto-detected)" style="grid-column: span 2;">
-                <div style="display:flex;gap:8px;grid-column: span 2;">
-                  <input type="text" id="popupAddKey" class="form-input" placeholder="Hotkey (optional)" maxlength="1" style="width:120px;">
-                  <button type="button" id="popupAddBtn" class="btn-primary" style="flex:1;">+ Add Translation</button>
+              <div style="margin-top:12px;display:flex;flex-direction:column;gap:10px;width:100%;box-sizing:border-box;">
+                <div style="width:100%;">
+                  <label for="popupAddSmart" style="display:block;font-size:11.5px;font-weight:700;color:var(--text-muted);margin-bottom:5px;">
+                    Translation Name, Code, or Bible.com Link
+                  </label>
+                  <input type="text" id="popupAddSmart" class="form-input" style="width:100%;height:36px;font-size:13px;" placeholder="Type e.g. GNV, Geneva Bible — or paste a Bible.com URL in that translation">
+                  <div class="hint-text" style="margin-top:5px;line-height:1.45;">
+                    <b>Uncommon or other-language Bibles:</b> open any chapter in that translation on <a href="https://www.bible.com/versions" target="_blank" rel="noopener noreferrer" style="color:var(--primary);text-decoration:underline;">Bible.com ↗</a> and paste the page URL here (e.g. <code>bible.com/bible/149/ROM.9.RVR1960</code>).
+                  </div>
                 </div>
-                <div id="popupAddFeedback" style="grid-column: span 2;font-size:11px;min-height:14px;font-weight:600;"></div>
+
+                <div id="popupAddPreview" style="display:none;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg);width:100%;box-sizing:border-box;">
+                  <span id="popupAddPreviewCode" style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;background:var(--primary-light);color:var(--primary);font-weight:700;font-size:11.5px;flex-shrink:0;"></span>
+                  <span id="popupAddPreviewName" style="font-size:12.5px;font-weight:600;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+                </div>
+
+                <div style="display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;">
+                  <input type="text" id="popupAddKey" class="form-input" placeholder="Hotkey" title="Optional single-key shortcut (e.g. G)" maxlength="1" style="width:84px;flex-shrink:0;text-align:center;height:36px;">
+                  <button type="button" id="popupAddBtn" class="btn-primary" style="flex:1;min-width:0;height:36px;">+ Add Translation</button>
+                </div>
+
+                <div id="popupAddFeedback" style="font-size:11.5px;min-height:16px;font-weight:600;"></div>
               </div>
             </details>
 
@@ -1247,65 +1707,74 @@
           </div>
 
           <div class="card">
-            <div class="card-title">Theme &amp; Typography</div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">Reading Theme</div>
-                <div class="hint-text">Choose a comfortable background and contrast palette</div>
-              </div>
-              <select id="readerTheme" class="dropdown-select">
-                <option value="system">⚙ System Default (Bible.com)</option>
-                <option value="sepia">📜 Warm Paper (Sepia #fbf0d9)</option>
-                <option value="light">☀️ Clean Light (White)</option>
-                <option value="dark">🌙 Night Dark (Slate #181a20)</option>
-                <option value="oled">🖤 OLED Pitch Black (#000000)</option>
-                <option value="blue">🌊 Midnight Navy (#0b1329)</option>
-                <option value="green">🌿 Sage Herb (#f0f5ee)</option>
-                <option value="historical">🏛 Historical (Ancient Scroll)</option>
-              </select>
+            <div class="card-title">Reading Theme &amp; Warm Paper</div>
+            <div class="hint-text">Choose your palette. <b>System Default</b> matches Bible.com's native theme. Custom themes (like <b>Warm Paper</b>, <b>Clean Light</b>, or <b>Night Dark</b>) give specialized comfort.</div>
+            <div class="popup-card-grid" id="popupThemeGrid">
+              <button type="button" class="popup-theme-card system" data-theme="system">
+                <div class="popup-card-title">⚙ System Default</div>
+                <div class="popup-card-desc">Bible.com's native appearance.</div>
+              </button>
+              <button type="button" class="popup-theme-card sepia" data-theme="sepia">
+                <div class="popup-card-title">📜 Warm Paper</div>
+                <div class="popup-card-desc">Soft ivory (#fbf0d9) with charcoal text. High comfort.</div>
+              </button>
+              <button type="button" class="popup-theme-card light" data-theme="light">
+                <div class="popup-card-title">☀️ Clean Light</div>
+                <div class="popup-card-desc">Pure crisp white with clean contrast.</div>
+              </button>
+              <button type="button" class="popup-theme-card dark" data-theme="dark">
+                <div class="popup-card-title">🌙 Night Dark</div>
+                <div class="popup-card-desc">Deep slate dark theme for nighttime reading.</div>
+              </button>
+              <button type="button" class="popup-theme-card oled" data-theme="oled">
+                <div class="popup-card-title">🖤 OLED Pitch Black</div>
+                <div class="popup-card-desc">True #000000 black. Max contrast, zero battery drain.</div>
+              </button>
+              <button type="button" class="popup-theme-card blue" data-theme="blue">
+                <div class="popup-card-title">🌊 Midnight Navy</div>
+                <div class="popup-card-desc">Deep ocean navy (#0b1329) with ice-blue text. Serene.</div>
+              </button>
+              <button type="button" class="popup-theme-card green" data-theme="green">
+                <div class="popup-card-title">🌿 Sage Herb</div>
+                <div class="popup-card-desc">Soothing sage paper (#f0f5ee) with forest text. Anti-fatigue.</div>
+              </button>
+              <button type="button" class="popup-theme-card historical" data-theme="historical">
+                <div class="popup-card-title">🏛 Historical</div>
+                <div class="popup-card-desc">Ancient scroll on a faded olive grove, library or ruins backdrop.</div>
+              </button>
+            </div>
+          </div>
+
+          <div class="card" id="popupHistOptionsCard" style="display:none;">
+            <div class="card-title">🏛 Historical Theme Options</div>
+            <div class="hint-text">Compose your own manuscript: choose the world around the page, the material it is written on, and the ink.</div>
+
+            <div class="popup-hist-label">Backdrop</div>
+            <div class="popup-hist-picker" data-hist="historicalScene">
+              <button type="button" class="popup-hist-chip" data-value="olive"><canvas class="popup-hist-chip-canvas" width="320" height="180"></canvas><span>Olive Grove</span></button>
+              <button type="button" class="popup-hist-chip" data-value="library"><canvas class="popup-hist-chip-canvas" width="320" height="180"></canvas><span>Ancient Library</span></button>
+              <button type="button" class="popup-hist-chip" data-value="ruins"><canvas class="popup-hist-chip-canvas" width="320" height="180"></canvas><span>Classical Ruins</span></button>
+              <button type="button" class="popup-hist-chip" data-value="night"><canvas class="popup-hist-chip-canvas" width="320" height="180"></canvas><span>Starlit Hills</span></button>
             </div>
 
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">🏛 Historical · Backdrop</div>
-                <div class="hint-text">Scene behind the page (Historical theme only)</div>
-              </div>
-              <select id="historicalScene" class="dropdown-select">
-                <option value="olive">🌳 Olive Grove (golden hour)</option>
-                <option value="library">📚 Ancient Library</option>
-                <option value="ruins">🏛 Classical Ruins (dusk)</option>
-                <option value="night">🌙 Starlit Hills (evening)</option>
-              </select>
+            <div class="popup-hist-label">Page Material</div>
+            <div class="popup-hist-picker small" data-hist="historicalParchment">
+              <button type="button" class="popup-hist-chip" data-value="scroll"><canvas class="popup-hist-chip-canvas" width="256" height="128"></canvas><span>Rolled Scroll</span></button>
+              <button type="button" class="popup-hist-chip" data-value="vellum"><canvas class="popup-hist-chip-canvas" width="256" height="128"></canvas><span>Pale Vellum</span></button>
+              <button type="button" class="popup-hist-chip" data-value="papyrus"><canvas class="popup-hist-chip-canvas" width="256" height="128"></canvas><span>Golden Papyrus</span></button>
+              <button type="button" class="popup-hist-chip" data-value="aged"><canvas class="popup-hist-chip-canvas" width="256" height="128"></canvas><span>Weathered</span></button>
             </div>
 
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">🏛 Historical · Page Material</div>
-                <div class="hint-text">What the scripture is written on</div>
-              </div>
-              <select id="historicalParchment" class="dropdown-select">
-                <option value="scroll">📜 Rolled Scroll</option>
-                <option value="vellum">🐑 Pale Vellum</option>
-                <option value="papyrus">🌾 Golden Papyrus</option>
-                <option value="aged">🕯 Weathered Parchment</option>
-              </select>
+            <div class="popup-hist-label">Ink</div>
+            <div class="popup-hist-picker small ink" data-hist="historicalInk">
+              <button type="button" class="popup-hist-chip ink-iron" data-value="iron"><span>Iron-Gall Brown</span></button>
+              <button type="button" class="popup-hist-chip ink-sepia" data-value="sepia"><span>Soft Sepia</span></button>
+              <button type="button" class="popup-hist-chip ink-black" data-value="black"><span>Lampblack</span></button>
             </div>
 
-            <div class="setting-row">
+            <div class="setting-row" style="margin-top:10px;">
               <div class="setting-info">
-                <div class="setting-label">🏛 Historical · Ink</div>
-                <div class="hint-text">Colour of the scripture text</div>
-              </div>
-              <select id="historicalInk" class="dropdown-select">
-                <option value="iron">Iron-Gall Brown</option>
-                <option value="sepia">Soft Sepia</option>
-                <option value="black">Lampblack</option>
-              </select>
-            </div>
-
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">🏛 Historical · Rubrication</div>
+                <div class="setting-label">Rubrication</div>
                 <div class="hint-text">Headings and verse numbers in manuscript red</div>
               </div>
               <label class="switch"><input type="checkbox" id="historicalRubrics"><span class="slider"></span></label>
@@ -1313,7 +1782,7 @@
 
             <div class="setting-row">
               <div class="setting-info">
-                <div class="setting-label">🏛 Historical · Illuminated Frame</div>
+                <div class="setting-label">Illuminated Frame</div>
                 <div class="hint-text">Double-rule border around the page</div>
               </div>
               <label class="switch"><input type="checkbox" id="historicalOrnate"><span class="slider"></span></label>
@@ -1321,24 +1790,43 @@
 
             <div class="slider-card-row">
               <div class="slider-header">
-                <span>🏛 Historical · Backdrop Darkness</span>
+                <span>Backdrop Darkness</span>
                 <span class="slider-val" id="historicalSceneDimV"></span>
               </div>
               <input type="range" id="historicalSceneDim" min="0" max="100" step="5">
             </div>
+          </div>
 
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">Book Typography / Font</div>
-                <div class="hint-text">Classic serif for book reading or modern sans for clean clarity</div>
-              </div>
-              <select id="fontFamily" class="dropdown-select">
-                <option value="serif">📖 Classic Book Serif (Georgia / Merriweather)</option>
-                <option value="sans">🔤 Modern Clean Sans (Inter / System)</option>
-                <option value="mono">⌨ Warm Monospace (SF Mono / Consolas)</option>
-                <option value="dyslexic">👓 Dyslexia Friendly (OpenDyslexic / High Readability)</option>
-              </select>
+          <div class="card">
+            <div class="card-title">Classic Book Typography &amp; Font Family</div>
+            <div class="hint-text">Select a typography style. <b>Classic Book Serif</b> gives Bible reading the feel of a printed Bible.</div>
+            <div class="popup-card-grid" id="popupFontGrid">
+              <button type="button" class="popup-font-card serif" data-font="serif">
+                <div class="popup-card-title">📖 Classic Book Serif</div>
+                <div class="popup-card-desc">Georgia, Merriweather, Garamond, Bookerly</div>
+              </button>
+              <button type="button" class="popup-font-card sans" data-font="sans">
+                <div class="popup-card-title">🔤 Modern Sans</div>
+                <div class="popup-card-desc">Clean, contemporary digital typography (Inter/System)</div>
+              </button>
+              <button type="button" class="popup-font-card mono" data-font="mono">
+                <div class="popup-card-title">⌨ Warm Monospace</div>
+                <div class="popup-card-desc">Structured, editorial typewriter aesthetic</div>
+              </button>
+              <button type="button" class="popup-font-card dyslexic" data-font="dyslexic">
+                <div class="popup-card-title">👓 Dyslexia Friendly</div>
+                <div class="popup-card-desc">OpenDyslexic with weighted baselines to prevent letter flipping</div>
+              </button>
             </div>
+
+            <div class="popup-preview-box" id="popupTypographyPreview">
+              “For God so loved the world, that he gave his only Son, that whoever believes in him should not perish but have eternal life.”
+              <div style="font-size:11px;opacity:0.75;margin-top:4px;">— John 3:16 (Live Typography Preview)</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Column Width &amp; Sizing</div>
 
             <div class="slider-card-row">
               <div class="slider-header">
@@ -1346,6 +1834,12 @@
                 <span class="slider-val" id="columnWidthV"></span>
               </div>
               <input type="range" id="columnWidth" min="500" max="2200" step="25">
+              <div class="popup-preset-btns">
+                <button type="button" class="popup-preset-btn" data-width-preset="750">750px</button>
+                <button type="button" class="popup-preset-btn" data-width-preset="950">950px</button>
+                <button type="button" class="popup-preset-btn" data-width-preset="1200">1200px</button>
+                <button type="button" class="popup-preset-btn" data-width-preset="1800">Max (1800px)</button>
+              </div>
               <div class="hint-text">Constrains line length for optimal reading comprehension and comfort</div>
             </div>
 
@@ -1358,7 +1852,7 @@
             </div>
 
             <div style="display:flex;justify-content:flex-end;margin-top:4px;margin-bottom:12px;">
-              <button type="button" class="preview-btn" id="popup-restore-toolbar-pills-btn" style="font-size:11px;padding:5px 10px;">
+              <button type="button" class="popup-preset-btn" id="popup-restore-toolbar-pills-btn">
                 ↺ Restore Aa Pill
               </button>
             </div>
@@ -1392,17 +1886,6 @@
 
           <div class="card">
             <div class="card-title">Commentary Drawer &amp; Dock</div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">Verse Hover Badges</div>
-                <div class="hint-text">Shows subtle 💬 icon next to verse numbers on hover</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="showCommentaryBadges">
-                <span class="slider"></span>
-              </label>
-            </div>
-
             <div class="setting-row">
               <div class="setting-info">
                 <div class="setting-label">Default Study Drawer Tab</div>
@@ -1443,18 +1926,8 @@
             <div class="card-title">Strong's Greek &amp; Hebrew Word Study</div>
             <div class="setting-row">
               <div class="setting-info">
-                <div class="setting-label">Strong's Lexicon Mode</div>
-                <div class="hint-text">View original Hebrew/Greek root word, Strong's number, transliteration &amp; definition</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="wordStudyMode">
-                <span class="slider"></span>
-              </label>
-            </div>
-            <div class="setting-row">
-              <div class="setting-info">
                 <div class="setting-label">Tooltip Trigger</div>
-                <div class="hint-text">How word study popup is triggered on words</div>
+                <div class="hint-text">When Word Study mode is active (via <b>🔬 Word Study</b> on the toolbar or hotkey <b>W</b>), choose how lexicon tooltips open</div>
               </div>
               <select id="wordStudyTrigger" class="form-input">
                 <option value="hover">Hover or Click</option>
@@ -1462,76 +1935,31 @@
               </select>
             </div>
           </div>
-        </section>
-
-        <!-- ================= 4. NOTES & HIGHLIGHTS ================= -->
-        <section class="settings-section" data-section="notes" style="display:none;">
-          <div class="section-title-wrap">
-            <h2 class="section-title">🖍️ YouVersion Cloud Highlighting</h2>
-            <p class="section-desc">Configure native YouVersion color highlights synchronized to your cloud account.</p>
-          </div>
 
           <div class="card">
-            <div class="card-title">YouVersion Cloud Highlighting</div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">YouVersion Native Highlighting</div>
-                <div class="hint-text">Uses YouVersion's actual cloud system. Highlights sync with your mobile app and web account!</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="youversionHighlighting">
-                <span class="slider"></span>
-              </label>
-            </div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">Verse Hover Highlight Pill</div>
-                <div class="hint-text">Show a 🖍️ highlighter pill next to verses on hover with active color dot</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="showVerseHighlightBadges">
-                <span class="slider"></span>
-              </label>
-            </div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">Default Highlight Color</div>
-                <div class="hint-text">Quick 1-key highlight color (Hotkey: H on selected text)</div>
-              </div>
-              <select id="defaultHighlightColor" class="dropdown-select">
-                <option value="fffe00">💛 Classic Yellow (#fffe00)</option>
-                <option value="5dff79">💚 Mint Green (#5dff79)</option>
-                <option value="00d6ff">💙 Sky Blue (#00d6ff)</option>
-                <option value="ffc66f">🧡 Warm Amber (#ffc66f)</option>
-                <option value="ff95ef">💗 Gentle Rose (#ff95ef)</option>
-              </select>
+            <div class="card-title">About the Integrated Study Tools</div>
+            <div class="hint-text" style="line-height:1.65;">
+              • <b>Commentary</b>: Displays expositions from 4 Modern commentaries plus 22 Classic commentators (Matthew Henry, John Calvin, Pulpit Commentary, JFB, Keil &amp; Delitzsch, Albert Barnes, John Gill, and more).<br>
+              • <b>Treasury of Scripture Knowledge (TSK)</b>: Connects cross-references grouped by thematic phrase, with verse previews and one-click jumping.<br>
+              • <b>Strong's Lexicon &amp; Interlinear</b>: Greek and Hebrew lexicon entries with transliteration, pronunciation, morphology, definitions, and occurrence counts.<br>
+              • <b>Smart Verse Copy &amp; YouVersion Highlighting</b>: Clean scripture quoting plus cloud-synced YouVersion color highlights.
             </div>
           </div>
         </section>
 
-        <!-- ================= 5. SMART VERSE COPY ================= -->
+        <!-- ================= 5. COPY & CLIPBOARD ================= -->
         <section class="settings-section" data-section="copy" style="display:none;">
           <div class="section-title-wrap">
-            <h2 class="section-title">📋 Smart Verse Copy &amp; Clean Text</h2>
-            <p class="section-desc">Copy clean scripture text without junk verse numbers or footnote marks.</p>
+            <h2 class="section-title">📋 Copy &amp; Clipboard Formatting</h2>
+            <p class="section-desc">Control what gets pasted when you select scripture on Bible.com and press <b>Ctrl+C</b> (or click <b>Copy</b> inside the Study Panel or Compare view).</p>
           </div>
 
           <div class="card">
-            <div class="card-title">Copy Controls &amp; Formats</div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">Smart Verse Copy</div>
-                <div class="hint-text">Adds 1-click copy buttons to verses and selection toolbars</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="smartVerseCopy">
-                <span class="slider"></span>
-              </label>
-            </div>
+            <div class="card-title">When Copying Text (Ctrl+C)</div>
             <div class="setting-row">
               <div class="setting-info">
                 <div class="setting-label">Clean Highlight Copy (Ctrl+C)</div>
-                <div class="hint-text">Automatically strips verse numbers and section headings when copying highlighted text</div>
+                <div class="hint-text">Automatically removes Bible.com clutter (footnote letters and symbols) when you select text and press Ctrl+C / ⌘+C, and formats your clipboard using the options below. Turn off to use unmodified browser copy.</div>
               </div>
               <label class="switch">
                 <input type="checkbox" id="copyCleanSelection">
@@ -1541,21 +1969,24 @@
           </div>
 
           <div class="card">
-            <div class="card-title">Include / Exclude in Copied Text</div>
+            <div class="card-title">What Gets Pasted</div>
+            <div class="hint-text" style="margin-bottom:10px;">
+              Applies whenever you press <b>Ctrl+C</b> (with Clean Highlight Copy on), click <b>Copy</b> in the Study Panel header, or click <b>📋 Copy</b> in Interleaved Compare.
+            </div>
             <div class="setting-row">
               <div class="setting-info">
                 <div class="setting-label">Include Scripture Reference</div>
-                <div class="hint-text">Append reference (e.g. Romans 9:1) at the end of the quote</div>
+                <div class="hint-text">Append the reference at the end (e.g. <code>— Romans 9:1</code>)</div>
               </div>
               <label class="switch">
                 <input type="checkbox" id="copyIncludeReference">
                 <span class="slider"></span>
               </label>
             </div>
-            <div class="setting-row">
+            <div class="setting-row" id="popupCopyVerRow">
               <div class="setting-info">
                 <div class="setting-label">Include Translation Code</div>
-                <div class="hint-text">Append version abbreviation like (NIV), (ESV)</div>
+                <div class="hint-text">Append version abbreviation after the reference (e.g. <code>(ESV)</code> — requires <b>Include Scripture Reference</b> above)</div>
               </div>
               <label class="switch">
                 <input type="checkbox" id="copyIncludeVersion">
@@ -1565,7 +1996,7 @@
             <div class="setting-row">
               <div class="setting-info">
                 <div class="setting-label">Include Verse Numbers</div>
-                <div class="hint-text">Keep verse numbers (1, 2, 3) inside copied text</div>
+                <div class="hint-text">Keep inline verse numbers (1, 2, 3) inside the pasted text</div>
               </div>
               <label class="switch">
                 <input type="checkbox" id="copyIncludeVerseNumbers">
@@ -1575,12 +2006,17 @@
             <div class="setting-row">
               <div class="setting-info">
                 <div class="setting-label">Include Section Headings</div>
-                <div class="hint-text">Keep section titles and chapter headings in copied text</div>
+                <div class="hint-text">Keep section titles and chapter headings inside the pasted text</div>
               </div>
               <label class="switch">
                 <input type="checkbox" id="copyIncludeHeadings">
                 <span class="slider"></span>
               </label>
+            </div>
+
+            <div class="popup-preview-box" id="popupCopyPreviewBox" style="margin-top:14px;">
+              <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:700;margin-bottom:4px;">Live Paste Preview (What lands on your clipboard)</div>
+              <div id="popupCopyPreviewText" style="font-size:12.5px;white-space:pre-wrap;line-height:1.6;"></div>
             </div>
           </div>
         </section>
@@ -1594,6 +2030,10 @@
 
           <div class="card">
             <div class="card-title">Site Interface Clutter</div>
+            <div class="popup-preset-btns" style="margin-bottom:12px;">
+              <button type="button" class="popup-preset-btn" id="popupHideAllBtn">👁 Hide All Distractions</button>
+              <button type="button" class="popup-preset-btn" id="popupShowAllBtn">Show All Website Elements</button>
+            </div>
             <div class="setting-row">
               <div class="setting-info">
                 <div class="setting-label">Hide Top Site Header</div>
@@ -1709,46 +2149,16 @@
                 <option value="floating">Always Floating Sticky</option>
               </select>
             </div>
-          </div>
-        </section>
-
-        <!-- ================= 8. PARALLEL COMPARE ================= -->
-        <section class="settings-section" data-section="compare" style="display:none;">
-          <div class="section-title-wrap">
-            <h2 class="section-title">🏛 Parallel Translation Comparison</h2>
-            <p class="section-desc">Compare two or more Bible versions side-by-side in synchronized columns or interleaved verse-by-verse.</p>
-          </div>
-
-          <div class="card">
-            <div class="card-title">Comparison Layout</div>
             <div class="setting-row">
               <div class="setting-info">
-                <div class="setting-label">Compare Mode Active</div>
-                <div class="hint-text">Toggles parallel comparison mode</div>
+                <div class="setting-label">Auto-Dim Floating Toolbar</div>
+                <div class="hint-text">Fades top study toolbar to 15% opacity while reading and blooms back to 100% on mouse hover</div>
               </div>
               <label class="switch">
-                <input type="checkbox" id="compareOn">
+                <input type="checkbox" id="autoDimBar">
                 <span class="slider"></span>
               </label>
             </div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">Comparison Layout Style</div>
-                <div class="hint-text">Whole chapter columns or parallel verse-by-verse comparison</div>
-              </div>
-              <select id="compareLayout" class="dropdown-select">
-                <option value="columns">🏛 Side-by-Side Columns (Whole Chapters)</option>
-                <option value="interleaved">📑 Interleaved Parallel View (Verse-by-Verse)</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">Default Translations to Compare</div>
-            <div class="hint-text" style="margin-bottom:8px;">
-              Select two or more translations to view side-by-side:
-            </div>
-            <div class="version-pills" id="comparePills"></div>
           </div>
         </section>
 
@@ -1762,6 +2172,9 @@
           <span>Deep Bible Study Suite • Built with care for God's Word</span>
         </div>
         <div class="footer-links">
+          <a href="https://chromewebstore.google.com/search/Deep%20Bible%3A%20Study%20Tools%20for%20YouVersion" target="_blank" rel="noopener noreferrer" class="footer-link-btn" id="footerRateLink" title="Rate Deep Bible on Chrome Web Store">
+            <span>⭐ Rate on Extension Store ↗</span>
+          </a>
           <a href="privacy.html" target="_blank" rel="noopener noreferrer" class="footer-link-btn" title="View Privacy Policy">
             <span>🔒 Privacy</span>
           </a>
@@ -1786,6 +2199,7 @@
 
   <script src="versions.js"></script>
   <script src="settings.js"></script>
+  <script src="historical.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

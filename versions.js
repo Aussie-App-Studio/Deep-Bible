@@ -338,7 +338,6 @@ var BBE_POPULAR_VERSIONS = {
   GNT:     { id: 68,   name: "Good News Translation", short: "GNT" },
   GW:      { id: 70,   name: "GOD'S WORD", short: "GW" },
   MEV:     { id: 1171, name: "Modern English Version", short: "MEV" },
-  TLB:     { id: 110,  name: "The Living Bible", short: "TLB" },
   TLV:     { id: 314,  name: "Tree of Life Version", short: "TLV" },
   TPT:     { id: 1849, name: "The Passion Translation", short: "TPT" },
   CEV:     { id: 392,  name: "Contemporary English Version", short: "CEV" },
@@ -346,8 +345,18 @@ var BBE_POPULAR_VERSIONS = {
   ICB:     { id: 1359, name: "International Children's Bible", short: "ICB" },
   NCV:     { id: 105,  name: "New Century Version", short: "NCV" },
   NIRV:    { id: 110,  name: "New International Reader's Version", short: "NIRV" },
+  MSG:     { id: 97,   name: "The Message", short: "MSG" },
+  CJB:     { id: 1275, name: "Complete Jewish Bible", short: "CJB" },
+  NRSV:    { id: 2016, name: "New Revised Standard Version", short: "NRSV" },
+  GNV:     { id: 2163, name: "Geneva Bible", short: "GNV" },
+  DARBY:   { id: 194,  name: "Darby's Translation (1890)", short: "DARBY" },
+  TOJB2011:{ id: 1305, name: "The Orthodox Jewish Bible", short: "TOJB2011" },
+  JUB:     { id: 1077, name: "Jubilee Bible", short: "JUB" },
   NMB:     { id: 1618, name: "New Matthew Bible", short: "NMB" },
   NASB1995:{ id: 100,  name: "New American Standard Bible 1995", short: "NASB1995" },
+  NASB95:  { id: 100,  name: "New American Standard Bible 1995", short: "NASB1995" },
+  NIVUK:   { id: 113,  name: "New International Version (Anglicised)", short: "NIVUK" },
+  EASY:    { id: 2079, name: "EasyEnglish Bible 2024", short: "EASY" },
   RVR1960: { id: 149,  name: "Biblia Reina Valera 1960", short: "RVR1960" },
   RVR95:   { id: 150,  name: "Biblia Reina Valera 1995", short: "RVR95" },
   RVC:     { id: 146,  name: "Reina Valera Contemporánea", short: "RVC" },
@@ -370,7 +379,7 @@ function bbeParseTranslationInput(input) {
 
   // 1. Pure numeric ID: e.g. "149" or "3345"
   if (/^\d+$/.test(str)) {
-    return { id: parseInt(str, 10), abbr: null, name: null };
+    return { id: parseInt(str, 10), abbr: null, slugAbbr: null, name: null };
   }
 
   // 2. URL format 1: bible.com/versions/149-rvr1960-biblia-reina-valera-1960
@@ -378,7 +387,8 @@ function bbeParseTranslationInput(input) {
   if (mVersion) {
     const id = parseInt(mVersion[1], 10);
     const raw = mVersion[2] ? mVersion[2].toUpperCase() : null;
-    return { id, abbr: (raw && /[a-zA-Z]/.test(raw)) ? raw : null, name: null };
+    const slugAbbr = (raw && /^[A-Z0-9]{2,12}$/.test(raw) && /[A-Z]/.test(raw)) ? raw : null;
+    return { id, abbr: null, slugAbbr, name: null };
   }
 
   // 3. URL format 2: bible.com/bible/149/ROM.9.RVR1960 or /bible/149/ROM.9
@@ -389,34 +399,55 @@ function bbeParseTranslationInput(input) {
     if (mBible[2]) {
       const parts = mBible[2].split('.');
       const last = parts[parts.length - 1];
-      if (parts.length > 1 && /[a-zA-Z]/.test(last) && /^[a-zA-Z0-9]{2,12}$/.test(last)) {
+      if (parts.length > 1 && /[a-zA-Z]/.test(last) && /^[a-zA-Z0-9\-]{2,16}$/.test(last)) {
         abbr = last.toUpperCase();
       }
     }
-    return { id, abbr, name: null };
+    return { id, abbr, slugAbbr: null, name: null };
   }
 
-  // 4. Raw abbreviation or code: e.g. "RVR1960", "ASV", "CEB", "LSB"
-  if (/^[A-Za-z0-9]{2,12}$/.test(str) && /[A-Za-z]/.test(str)) {
+  // 4. Raw abbreviation or code: e.g. "RVR1960", "ASV", "CEB", "LSB", "NRSV-CI"
+  if (/^[A-Za-z0-9\-]{2,16}$/.test(str) && /[A-Za-z]/.test(str)) {
     const code = str.toUpperCase();
-    return { id: null, abbr: code, name: null };
+    return { id: null, abbr: code, slugAbbr: null, name: null, nameQuery: null };
+  }
+
+  // 5. Full or partial translation name: e.g. "Jubilee Bible", "Young's Literal"
+  if (str.length >= 2 && str.length <= 80 && /[A-Za-z]{2,}/.test(str) && !/https?:\/\//i.test(str) && !str.includes("/")) {
+    return { id: null, abbr: null, slugAbbr: null, name: null, nameQuery: str };
   }
 
   return null;
 }
 
+function bbeFindVersionByQuery(query) {
+  if (!query || typeof query !== "string") return null;
+  const q = query.trim().toLowerCase();
+  if (!q) return null;
+  const allPool = { ...BBE_VERSIONS, ...(typeof BBE_POPULAR_VERSIONS !== "undefined" ? BBE_POPULAR_VERSIONS : {}) };
+  const entries = Object.values(allPool);
+
+  // Priority: exact short -> exact name -> name startsWith -> name includes -> short includes
+  return entries.find(v => (v.short || "").toLowerCase() === q)
+    || entries.find(v => (v.name || "").toLowerCase() === q)
+    || entries.find(v => (v.name || "").toLowerCase().startsWith(q))
+    || entries.find(v => (v.name || "").toLowerCase().includes(q))
+    || entries.find(v => (v.short || "").toLowerCase().includes(q))
+    || null;
+}
+
 // Automatically resolves complete translation metadata from partial information
-// (e.g. from just a numeric ID, just a URL, or just an abbreviation code)
+// (e.g. from just a numeric ID, just a URL, just a code, or a translation name)
 async function bbeResolveTranslation(inputOrData) {
   let partial = typeof inputOrData === "string"
     ? bbeParseTranslationInput(inputOrData)
     : { ...inputOrData };
 
   if (!partial) {
-    throw new Error("Could not parse version information. Enter a Bible.com link, numeric ID (e.g. 149), or code (e.g. RVR1960).");
+    throw new Error("Could not recognize that translation. Type a common name/code (e.g. GNV, JUB) or paste a Bible.com URL in that translation.");
   }
 
-  let { id, abbr, name, shortcut } = partial;
+  let { id, abbr, slugAbbr, name, nameQuery, shortcut } = partial;
   if (typeof id === "string" && /^\d+$/.test(id.trim())) {
     id = parseInt(id.trim(), 10);
   }
@@ -424,12 +455,26 @@ async function bbeResolveTranslation(inputOrData) {
   if (name) name = name.trim();
   if (shortcut) shortcut = shortcut.trim().toLowerCase();
 
-  // Step 1: Check known dictionaries if abbr is known and id/name is missing
+  // Step 0: If user entered a translation name (e.g. "Jubilee Bible"), search known catalog
+  if (!id && !abbr && nameQuery) {
+    const byName = bbeFindVersionByQuery(nameQuery);
+    if (byName) {
+      id = byName.id;
+      abbr = byName.short;
+      name = byName.name;
+    }
+  }
+
+  // Step 1: Check known dictionaries/aliases if abbr is known and id/name is missing
   if (abbr && (!id || !name)) {
-    const match = BBE_VERSIONS[abbr] || (typeof BBE_POPULAR_VERSIONS !== "undefined" && BBE_POPULAR_VERSIONS[abbr]);
+    const canon = BBE_ALIASES[abbr] || abbr;
+    const match = BBE_VERSIONS[canon] || (typeof BBE_POPULAR_VERSIONS !== "undefined" && (BBE_POPULAR_VERSIONS[abbr] || BBE_POPULAR_VERSIONS[canon]));
     if (match) {
       if (!id) id = match.id;
       if (!name) name = match.name;
+      abbr = match.short || canon;
+    } else if (!id && BBE_EXTRA_IDS[abbr]) {
+      id = BBE_EXTRA_IDS[abbr];
     }
   }
 
@@ -445,7 +490,7 @@ async function bbeResolveTranslation(inputOrData) {
     }
   }
 
-  // Step 3: If still missing abbr or name, fetch live from Bible.com official API
+  // Step 3: If still missing abbr or name, fetch live from Bible.com API, then fallback to /versions/{id} HTML
   if (id && (!abbr || !name)) {
     try {
       const res = await fetch("https://www.bible.com/api/bible/version/" + id);
@@ -453,31 +498,53 @@ async function bbeResolveTranslation(inputOrData) {
         const data = await res.json();
         if (data) {
           if (!abbr) {
-            abbr = (data.local_abbreviation || data.abbreviation || ("V" + id)).toUpperCase();
+            abbr = (data.local_abbreviation || data.abbreviation || "").toUpperCase();
           }
           if (!name) {
-            name = data.local_title || data.title || data.name || abbr;
+            name = data.local_title || data.title || data.name || "";
           }
         }
       }
     } catch (e) {
-      // Offline or network error - gracefully fall back
+      // Fall through to HTML fallback
+    }
+
+    if (!abbr || !name) {
+      try {
+        const htmlRes = await fetch("https://www.bible.com/versions/" + id);
+        if (htmlRes.ok) {
+          const htmlText = await htmlRes.text();
+          const titleRaw =
+            htmlText.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] ||
+            htmlText.match(/property=["']og:title["']\s+content=["']([^"']+)["']/i)?.[1] ||
+            "";
+          const cleanTitle = titleRaw.replace(/:\s*Online Bible.*$/i, "").trim();
+          const titleMatch = cleanTitle.match(/^(.+?)\s*\(([A-Za-z0-9\-]{2,16})\)\s*$/);
+          if (titleMatch) {
+            if (!name) name = titleMatch[1].trim();
+            if (!abbr) abbr = titleMatch[2].trim().toUpperCase();
+          }
+        }
+      } catch (e) {
+        // Offline or blocked - fall through to graceful fallbacks
+      }
     }
   }
 
   // Step 4: Graceful fallbacks
   if (id && !abbr) {
-    abbr = "V" + id;
+    abbr = slugAbbr || ("V" + id);
   }
   if (!name && abbr) {
     name = abbr;
   }
 
   if (!id || isNaN(id) || id <= 0) {
-    throw new Error("Missing or invalid Bible.com numeric ID. Please enter an ID (e.g. 149) or URL.");
+    const qLabel = abbr || nameQuery || inputOrData;
+    throw new Error(`"${qLabel}" isn't in the built-in quick list. Open any chapter in that translation on Bible.com and paste its URL here (e.g. bible.com/bible/149/ROM.9.RVR1960).`);
   }
-  if (!abbr || !/^[A-Z0-9]{2,12}$/.test(abbr)) {
-    throw new Error("Missing or invalid abbreviation code (2-12 letters/numbers).");
+  if (!abbr || !/^[A-Z0-9\-]{2,16}$/.test(abbr)) {
+    throw new Error("Missing or invalid abbreviation code (2-16 letters/numbers).");
   }
 
   return {

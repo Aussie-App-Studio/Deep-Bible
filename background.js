@@ -996,21 +996,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'OPEN_OPTIONS') {
-    if (chrome.runtime && chrome.runtime.openOptionsPage) {
+    const baseUrl = chrome.runtime.getURL('popup.html');
+    const targetUrl = msg.section ? `${baseUrl}#${msg.section}` : baseUrl;
+
+    if (!msg.section && chrome.runtime && chrome.runtime.openOptionsPage) {
       chrome.runtime.openOptionsPage(() => {
         if (chrome.runtime.lastError) {
-          chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') }, () => {
-            sendResponse({ ok: true });
-          });
+          chrome.tabs.create({ url: targetUrl }, () => sendResponse({ ok: true }));
         } else {
           sendResponse({ ok: true });
         }
       });
-    } else {
-      chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') }, () => {
-        sendResponse({ ok: true });
-      });
+      return true;
     }
+
+    chrome.tabs.query({ url: baseUrl + '*' }, (tabs) => {
+      if (tabs && tabs.length > 0) {
+        const t = tabs[0];
+        chrome.tabs.update(t.id, { url: targetUrl, active: true }, () => {
+          if (chrome.windows && t.windowId) {
+            chrome.windows.update(t.windowId, { focused: true }, () => sendResponse({ ok: true }));
+          } else {
+            sendResponse({ ok: true });
+          }
+        });
+      } else {
+        chrome.tabs.create({ url: targetUrl }, () => sendResponse({ ok: true }));
+      }
+    });
     return true;
   }
 
