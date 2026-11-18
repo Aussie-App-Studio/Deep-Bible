@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Deep Bible: Study Tools for YouVersion (Bible.com)",
   "version": "1.0.0",
-  "description": "Transform Bible.com (YouVersion) into a powerful study bible with verse commentaries, Strong's Greek/Hebrew lexicon, TSK cross-references, 1-key translation switching & parallel comparison.",
+  "description": "Transform Bible.com into a Study Bible: commentaries, Strong's lexicon, TSK cross-references, 1-key version switching & parallel.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://www.bible.com/*",

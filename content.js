@@ -100,14 +100,6 @@
     }
   }
 
-  // Custom CSS injection element
-  let customStyle = document.getElementById("bbe-custom-style");
-  if (!customStyle) {
-    customStyle = document.createElement("style");
-    customStyle.id = "bbe-custom-style";
-    (document.head || html).appendChild(customStyle);
-  }
-
   // Toast notification element
   let toastEl = document.getElementById("bbe-toast");
   if (!toastEl) {
@@ -183,7 +175,7 @@
       S.hideSwitcher, S.toolbarBehavior, S.autoDimBar, S.wordStudyMode, S.fontFamily,
       S.readerTheme, S.historicalScene, S.historicalParchment, S.historicalInk,
       S.historicalRubrics, S.historicalOrnate, S.historicalSceneDim,
-      S.columnWidth, S.fontSize, S.lineHeight, S.compareOn, S.customCss,
+      S.columnWidth, S.fontSize, S.lineHeight, S.compareOn,
       !!document.body
     ].join("|");
 
@@ -339,19 +331,23 @@
     if (html.style.getPropertyValue("--bbe-lh") !== targetLh) {
       html.style.setProperty("--bbe-lh", targetLh);
     }
-
-    const targetCustom = S.enabled ? S.customCss || "" : "";
-    if (customStyle.textContent !== targetCustom) {
-      customStyle.textContent = targetCustom;
-    }
   }
 
   // Storage listener for changes from popup or toolbar
   if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
     chrome.storage.onChanged.addListener((changes) => {
       let shouldRerender = false;
+      let commentaryChanged = false;
+      let modernFetchChanged = false;
       for (const k in changes) {
         S[k] = changes[k].newValue;
+        if (k === "hiddenCommentaries" || k === "commentaryOrder") {
+          commentaryChanged = true;
+        }
+        if (k === "commEnableTgc" || k === "commEnableGuzik" || k === "commEnableConstable" || k === "commEnableUtley") {
+          commentaryChanged = true;
+          modernFetchChanged = true;
+        }
         // Don't re-render toolbar when quickStudyShowCount increments on focus,
         // but re-render if it was reset to 0 from settings/popup.
         if (k === "quickStudyShowCount") {
@@ -363,6 +359,9 @@
         }
       }
       syncDomClasses();
+      if (commentaryChanged && isDrawerOpen && activeStudyTab === "commentary" && currentDrawerPassage?.book) {
+        refreshOpenCommentaryDrawer(modernFetchChanged);
+      }
       if (shouldRerender) {
         lastRenderKey = ""; // trigger re-render
         const p = bbeParsePath(location.pathname, getAllVersions());
@@ -1437,12 +1436,33 @@
   let chipsScrollLeft = 0;
   let chipsDidDrag = false;
 
+  // Bottom-docked drawer vertical resize state
+  let isResizingDrawer = false;
+  let drawerResizeStartY = 0;
+  let drawerResizeStartH = 0;
+
+  function clampBottomDrawerHeight(px) {
+    const minH = 160;
+    const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.88));
+    return Math.min(maxH, Math.max(minH, Math.round(px)));
+  }
+
   function applyDrawerDockClasses(drawer) {
     if (!drawer) return;
-    const dock = S.commentaryDock || "right";
+    const dock = S.commentaryDock || "bottom";
     drawer.classList.toggle("bbe-dock-bottom", dock === "bottom");
     drawer.classList.toggle("bbe-dock-right", dock !== "bottom");
     drawer.classList.toggle("bbe-fullscreen", isDrawerFullscreen);
+    const backdrop = document.getElementById("bbe-drawer-backdrop");
+    if (backdrop) {
+      backdrop.classList.toggle("bbe-backdrop-bottom", dock === "bottom");
+    }
+
+    if (dock === "bottom" && !isDrawerFullscreen && Number(S.commentaryBottomHeight) >= 160) {
+      drawer.style.setProperty("--bbe-bottom-height", `${clampBottomDrawerHeight(Number(S.commentaryBottomHeight))}px`);
+    } else {
+      drawer.style.removeProperty("--bbe-bottom-height");
+    }
 
     const dockIcon = drawer.querySelector("#bbe-drawer-dock-icon");
     const dockLabel = drawer.querySelector("#bbe-drawer-dock-label");
@@ -1489,6 +1509,9 @@
       drawer = document.createElement("div");
       drawer.id = "bbe-drawer";
       drawer.innerHTML = `
+        <div class="bbe-drawer-resizer" id="bbe-drawer-resizer" title="Drag up or down to resize (double-click to reset)">
+          <span class="bbe-drawer-resizer-pill"></span>
+        </div>
         <div class="bbe-drawer-header">
           <div class="bbe-drawer-title-group">
             <div class="bbe-drawer-ref" id="bbe-drawer-ref">Scripture Commentary</div>
@@ -1531,6 +1554,47 @@
 
       applyDrawerDockClasses(drawer);
 
+      // Drag handle at top of bottom-docked panel (Logos / Accordance split resize)
+      const resizerEl = drawer.querySelector("#bbe-drawer-resizer");
+      if (resizerEl) {
+        resizerEl.addEventListener("pointerdown", (e) => {
+          if (e.button !== 0 && e.pointerType === "mouse") return;
+          if (!drawer.classList.contains("bbe-dock-bottom") || isDrawerFullscreen) return;
+          e.preventDefault();
+          isResizingDrawer = true;
+          drawerResizeStartY = e.clientY;
+          drawerResizeStartH = drawer.getBoundingClientRect().height;
+          drawer.classList.add("bbe-resizing");
+          document.body.style.cursor = "ns-resize";
+        });
+
+        resizerEl.addEventListener("dblclick", async () => {
+          if (!drawer.classList.contains("bbe-dock-bottom") || isDrawerFullscreen) return;
+          S.commentaryBottomHeight = null;
+          drawer.style.removeProperty("--bbe-bottom-height");
+          await bbeSave({ commentaryBottomHeight: null });
+          showToast("↺ Reset study panel height");
+        });
+      }
+
+      window.addEventListener("pointermove", (e) => {
+        if (!isResizingDrawer) return;
+        const nextH = clampBottomDrawerHeight(drawerResizeStartH + (drawerResizeStartY - e.clientY));
+        drawer.style.setProperty("--bbe-bottom-height", `${nextH}px`);
+      });
+
+      const finishDrawerResize = async () => {
+        if (!isResizingDrawer) return;
+        isResizingDrawer = false;
+        drawer.classList.remove("bbe-resizing");
+        document.body.style.cursor = "";
+        const finalH = clampBottomDrawerHeight(drawer.getBoundingClientRect().height);
+        S.commentaryBottomHeight = finalH;
+        await bbeSave({ commentaryBottomHeight: finalH });
+      };
+      window.addEventListener("pointerup", finishDrawerResize);
+      window.addEventListener("pointercancel", finishDrawerResize);
+
       drawer.querySelector("#bbe-tab-commentary").addEventListener("click", () => {
         switchStudyTab("commentary");
       });
@@ -1552,7 +1616,8 @@
       });
 
       drawer.querySelector("#bbe-drawer-dock-btn").addEventListener("click", async () => {
-        const newDock = (S.commentaryDock === "bottom") ? "right" : "bottom";
+        const currentDock = S.commentaryDock || "bottom";
+        const newDock = (currentDock === "bottom") ? "right" : "bottom";
         S.commentaryDock = newDock;
         applyDrawerDockClasses(drawer);
         await bbeSave({ commentaryDock: newDock });
@@ -2227,6 +2292,30 @@
     }
   });
 
+  // Double-clicking a verse while the bottom-docked study bar is open switches the drawer to that verse
+  document.addEventListener("dblclick", (e) => {
+    if (!S.enabled || !isDrawerOpen || (S.commentaryDock || "bottom") !== "bottom" || isDrawerFullscreen || isShortcutsModalOpen) return;
+    if (!e.target || !e.target.closest) return;
+    if (e.target.closest("a, button, input, textarea, select, [contenteditable='true'], #bbe-drawer, #bbe-bar, #bbe-shortcuts-modal, #bbe-selection-copy-bar, #bbe-word-tooltip")) return;
+
+    const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    if (!chapterEl || !chapterEl.contains(e.target)) return;
+
+    const verseEl = e.target.closest("[data-usfm]");
+    if (!verseEl || !chapterEl.contains(verseEl)) return;
+
+    const p = bbeParsePath(location.pathname, getAllVersions());
+    if (!p) return;
+    const prefix = `${p.book}.${p.chapter}.`;
+    const usfm = verseEl.getAttribute("data-usfm") || "";
+    if (!usfm.startsWith(prefix)) return;
+
+    const vNum = parseInt(usfm.slice(prefix.length), 10);
+    if (!isNaN(vNum) && vNum >= 1) {
+      openCommentaryDrawer(p.book, p.chapter, vNum);
+    }
+  });
+
   // Intercept native Ctrl+C / Cmd+C on highlighted scripture text to strip verse numbers & headings
   document.addEventListener("copy", (e) => {
     if (!S.enabled || S.smartVerseCopy === false || S.copyCleanSelection === false) return;
@@ -2301,53 +2390,13 @@
     for (const c of commentaries) {
       if (!seen.has(c.key)) {
         seen.add(c.key);
-        let short = c.title
-          .replace(/['']s Commentary.*|'s Concise.*|'s Notes.*|'s Exposition.*| Commentary.*| Notes.*/gi, "")
-          .trim();
-        if (c.key === "the_gospel_coalition") short = "The Gospel Coalition";
-        else if (c.key === "david_guzik") short = "David Guzik";
-        else if (c.key === "thomas_constable") short = "Thomas Constable";
-        else if (c.key === "bob_utley") short = "Bob Utley";
-        else if (c.key === "matthew_henry") short = "Matthew Henry";
-        else if (c.key === "john_calvin") short = "John Calvin";
-        else if (c.key === "jfb") short = "JFB";
-        else if (c.key === "pulpit") short = "Pulpit";
-        else if (c.key === "keil_delitzsch") short = "Keil & Delitzsch";
-        else if (c.key === "barnes") short = "Barnes";
-        else if (c.key === "cambridge") short = "Cambridge";
-        else if (c.key === "john_gill") short = "John Gill";
-        else if (c.key === "meyer") short = "Meyer";
-        else if (c.key === "vincent") short = "Vincent Word Studies";
-        else if (c.key === "adam_clarke") short = "Adam Clarke";
-        else if (c.key === "wesley") short = "Wesley";
-        else if (c.key === "scofield") short = "Scofield";
-        else if (c.key === "darby") short = "Darby";
-        else if (c.key === "spurgeon") short = "Spurgeon";
-        else if (c.key === "lange") short = "Lange";
-        else if (c.key === "maclaren") short = "MacLaren";
-        else if (c.key === "ellicott") short = "Ellicott";
-        else if (c.key === "benson") short = "Benson";
-        else if (c.key === "poole") short = "Matthew Poole";
-        else if (c.key === "bengel") short = "Bengel";
-        else if (c.key === "geneva_1599") short = "Geneva";
-        authors.push({ key: c.key, label: short });
+        authors.push({ key: c.key, label: bbeGetCommentaryLabel(c.key, c.title) });
       }
     }
 
-    const priorityOrder = [
-      "all", "the_gospel_coalition", "david_guzik", "thomas_constable", "bob_utley",
-      "matthew_henry", "john_calvin", "jfb", "pulpit", "keil_delitzsch",
-      "barnes", "cambridge", "john_gill", "meyer", "vincent",
-      "adam_clarke", "wesley", "scofield", "darby", "spurgeon",
-      "lange", "maclaren", "ellicott", "benson", "poole", "bengel", "geneva_1599"
-    ];
-    authors.sort((a, b) => {
-      const ai = priorityOrder.indexOf(a.key);
-      const bi = priorityOrder.indexOf(b.key);
-      const ar = ai === -1 ? 999 : ai;
-      const br = bi === -1 ? 999 : bi;
-      return ar - br;
-    });
+    if (activeAuthorFilter !== "all" && !seen.has(activeAuthorFilter)) {
+      activeAuthorFilter = "all";
+    }
 
     authors.forEach(a => {
       const chip = document.createElement("span");
@@ -2416,6 +2465,39 @@
         linkBtn.textContent = linkLabel;
         linkBtn.title = "Open commentary source in new tab";
         actionsEl.appendChild(linkBtn);
+      }
+
+      const orderedKeys = bbeGetOrderedCommentarySources(S).map(s => s.key);
+      if (item.key && orderedKeys[0] !== item.key) {
+        const pinBtn = document.createElement("button");
+        pinBtn.type = "button";
+        pinBtn.className = "bbe-comm-copy-btn bbe-comm-subtle-btn";
+        pinBtn.textContent = "↑ Top";
+        pinBtn.title = "Display this commentary first";
+        pinBtn.addEventListener("click", async () => {
+          const patch = bbeBuildCommentaryOrderPatch("top", item.key, S);
+          Object.assign(S, patch);
+          await bbeSave(patch);
+          refreshOpenCommentaryDrawer(false);
+          showToast(`Pinned ${bbeGetCommentaryLabel(item.key, item.title)} to top`);
+        });
+        actionsEl.appendChild(pinBtn);
+      }
+
+      if (item.key && item.key !== "other") {
+        const hideBtn = document.createElement("button");
+        hideBtn.type = "button";
+        hideBtn.className = "bbe-comm-copy-btn bbe-comm-subtle-btn";
+        hideBtn.textContent = "Hide";
+        hideBtn.title = "Hide this commentary source (re-enable anytime in Settings)";
+        hideBtn.addEventListener("click", async () => {
+          const patch = bbeBuildCommentaryTogglePatch(item.key, false, S);
+          Object.assign(S, patch);
+          await bbeSave(patch);
+          refreshOpenCommentaryDrawer(false);
+          showToast(`Hidden ${bbeGetCommentaryLabel(item.key, item.title)} (restore in Settings)`);
+        });
+        actionsEl.appendChild(hideBtn);
       }
 
       const copyBtn = document.createElement("button");
@@ -2550,6 +2632,36 @@
     window.location.href = targetUrl;
   }
 
+  function refreshOpenCommentaryDrawer(refetchIfModernEnabled) {
+    const drawer = document.getElementById("bbe-drawer");
+    if (!drawer || !isDrawerOpen || activeStudyTab !== "commentary") return;
+    if (refetchIfModernEnabled && currentDrawerPassage?.book) {
+      fetchAndRenderCommentary(currentDrawerPassage.book, currentDrawerPassage.chapter, currentDrawerPassage.verse || 1);
+      return;
+    }
+    if (!cachedCommentaryData || !Array.isArray(cachedCommentaryData.commentaries)) return;
+    const bodyEl = drawer.querySelector("#bbe-drawer-body");
+    const chipsEl = drawer.querySelector("#bbe-drawer-chips");
+    const hubLink = drawer.querySelector("#bbe-drawer-hublink");
+    const visible = bbeSortAndFilterCommentaries(cachedCommentaryData.commentaries, S);
+    if (visible.length === 0) {
+      chipsEl?.replaceChildren();
+      if (bodyEl) {
+        bodyEl.innerHTML = `
+          <div class="bbe-comm-empty">
+            All matching commentary sources are hidden in Settings.<br><br>
+            <a href="${hubLink ? hubLink.href : '#'}" target="_blank" rel="noopener">View on BibleHub ↗</a>
+          </div>
+        `;
+      }
+      return;
+    }
+    buildCommentaryChips(visible, chipsEl, (authorKey) => {
+      renderCommentaryItems(visible, authorKey, bodyEl);
+    });
+    renderCommentaryItems(visible, activeAuthorFilter, bodyEl);
+  }
+
   function fetchAndRenderCommentary(bookCode, chapter, vNum) {
     const drawer = document.getElementById("bbe-drawer");
     if (!drawer) return;
@@ -2571,10 +2683,10 @@
       chapter: String(chapter),
       verse: vNum,
       settings: {
-        commEnableTgc: S.commEnableTgc !== false,
-        commEnableGuzik: S.commEnableGuzik !== false,
-        commEnableConstable: S.commEnableConstable !== false,
-        commEnableUtley: S.commEnableUtley !== false
+        commEnableTgc: bbeIsCommentaryEnabled("the_gospel_coalition", S),
+        commEnableGuzik: bbeIsCommentaryEnabled("david_guzik", S),
+        commEnableConstable: bbeIsCommentaryEnabled("thomas_constable", S),
+        commEnableUtley: bbeIsCommentaryEnabled("bob_utley", S)
       }
     }, (res) => {
         if (!isDrawerOpen || currentDrawerPassage.verse !== vNum || activeStudyTab !== "commentary") return;
@@ -2594,10 +2706,20 @@
         }
 
         cachedCommentaryData = res;
-        buildCommentaryChips(res.commentaries, chipsEl, (authorKey) => {
-          renderCommentaryItems(res.commentaries, authorKey, bodyEl);
+        const visible = bbeSortAndFilterCommentaries(res.commentaries, S);
+        if (visible.length === 0) {
+          bodyEl.innerHTML = `
+            <div class="bbe-comm-empty">
+              All available commentary sources for this verse are hidden in Settings.<br><br>
+              <a href="${hubLink ? hubLink.href : '#'}" target="_blank" rel="noopener">View on BibleHub ↗</a>
+            </div>
+          `;
+          return;
+        }
+        buildCommentaryChips(visible, chipsEl, (authorKey) => {
+          renderCommentaryItems(visible, authorKey, bodyEl);
         });
-        renderCommentaryItems(res.commentaries, activeAuthorFilter, bodyEl);
+        renderCommentaryItems(visible, activeAuthorFilter, bodyEl);
       });
   }
 
@@ -2730,6 +2852,71 @@
           crossBody.appendChild(secEl);
         });
       });
+  }
+
+  /** Pick the most relevant verse for opening the study drawer (visible selection -> URL verse -> reading-zone verse). */
+  function getContextualStudyVerse(p) {
+    if (!p) return 1;
+    const prefix = `${p.book}.${p.chapter}.`;
+    const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+
+    const parseUsfmNum = (el) => {
+      const usfm = el?.getAttribute?.("data-usfm") || "";
+      if (!usfm.startsWith(prefix)) return NaN;
+      return parseInt(usfm.slice(prefix.length), 10);
+    };
+
+    // 1. Active text selection inside the chapter, only if currently visible in the viewport
+    try {
+      const sel = window.getSelection();
+      if (chapterEl && sel && !sel.isCollapsed && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        if (chapterEl.contains(range.commonAncestorContainer)) {
+          const rect = range.getBoundingClientRect();
+          const isVisible = (rect.width > 0 || rect.height > 0) && rect.bottom > 0 && rect.top < window.innerHeight;
+          if (isVisible) {
+            const matched = [];
+            chapterEl.querySelectorAll('[data-usfm]').forEach(v => {
+              if (range.intersectsNode(v)) {
+                const n = parseUsfmNum(v);
+                if (!isNaN(n)) matched.push(n);
+              }
+            });
+            if (matched.length > 0) return Math.min(...matched);
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 2. URL-specified verse (e.g. /ROM.8.13.ESV), or multi-verse URL while near the top
+    const urlSpec = p.verses ? parseVerseRangeSpec(p.verses) : null;
+    if (urlSpec && (urlSpec.min === urlSpec.max || window.scrollY <= 40)) {
+      return urlSpec.min;
+    }
+
+    // 3. Top of chapter -> v. 1; scrolled down -> verse in the reading zone (~22% down viewport)
+    if (window.scrollY <= 40) return urlSpec ? urlSpec.min : 1;
+
+    if (chapterEl) {
+      const readingY = Math.min(220, Math.round(window.innerHeight * 0.22));
+      let lastVisibleNum = null;
+      const verses = chapterEl.querySelectorAll('[data-usfm]');
+      for (const v of verses) {
+        const rect = v.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) continue;
+        const n = parseUsfmNum(v);
+        if (isNaN(n)) continue;
+        if (rect.top < window.innerHeight && rect.bottom > 0) {
+          lastVisibleNum = n;
+        }
+        if (rect.bottom > readingY && rect.top < window.innerHeight) {
+          return n;
+        }
+      }
+      if (lastVisibleNum !== null) return lastVisibleNum;
+    }
+
+    return urlSpec ? urlSpec.min : 1;
   }
 
   function openCommentaryDrawer(bookCode, chapter, verseNum, optTab) {
@@ -3444,6 +3631,27 @@
     }
 
     const k = e.key.toLowerCase();
+
+    function toggleDrawerShortcutTab(tab, event) {
+      const allVers = getAllVersions();
+      const p = bbeParsePath(location.pathname, allVers);
+      if (!p) return;
+      event.preventDefault();
+      if (isDrawerOpen && activeStudyTab === tab) {
+        closeCommentaryDrawer();
+      } else if (isDrawerOpen) {
+        switchStudyTab(tab);
+      } else {
+        openCommentaryDrawer(p.book, p.chapter, getContextualStudyVerse(p), tab);
+      }
+    }
+
+    // Hardcoded study drawer hotkeys (cannot be reassigned to translations)
+    if (k === "c" || k === "r") {
+      toggleDrawerShortcutTab(k === "r" ? "crossref" : "commentary", e);
+      return;
+    }
+
     const keyMap = getKeyMap();
 
     // Check if key is mapped to a translation shortcut
@@ -3454,22 +3662,6 @@
       if (p) {
         e.preventDefault();
         switchToVersion(targetVersion, p);
-      }
-      return;
-    }
-
-    // 'C' shortcut toggles commentary drawer if not mapped to a translation
-    if (k === "c") {
-      const allVers = getAllVersions();
-      const p = bbeParsePath(location.pathname, allVers);
-      if (p) {
-        e.preventDefault();
-        if (isDrawerOpen) {
-          closeCommentaryDrawer();
-        } else {
-          const firstVerse = (p.verses && parseVerseRangeSpec(p.verses)?.min) || 1;
-          openCommentaryDrawer(p.book, p.chapter, firstVerse);
-        }
       }
       return;
     }
@@ -3619,31 +3811,12 @@
     }
   }
 
-  function updateScrollProgress() {
-    const fill = document.querySelector(".bbe-scroll-progress-fill");
-    if (!fill) return;
-    const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)') || document.querySelector('main');
-    if (!chapterEl) return;
-    const rect = chapterEl.getBoundingClientRect();
-    const totalHeight = rect.height;
-    const viewportHeight = window.innerHeight;
-    const scrollable = totalHeight - viewportHeight * 0.5;
-    if (scrollable <= 0) {
-      fill.style.width = "100%";
-      return;
-    }
-    const scrolled = Math.max(0, -rect.top + 80);
-    const pct = Math.min(100, Math.max(0, (scrolled / scrollable) * 100));
-    fill.style.width = pct.toFixed(1) + "%";
-  }
-
   let scrollRafTicking = false;
   window.addEventListener("scroll", () => {
     if (scrollRafTicking) return;
     scrollRafTicking = true;
     requestAnimationFrame(() => {
       scrollRafTicking = false;
-      updateScrollProgress();
 
       if (S.toolbarBehavior === "static" || S.toolbarBehavior === "floating") {
         showBar();
@@ -4061,13 +4234,12 @@
     // Commentary Drawer Button
     const commBtn = createBtn(
       isDrawerOpen ? "💬 Commentary On" : "💬 Commentary",
-      "Open verse study commentary (Shortcut: C)",
+      "Open study drawer (C: Commentary, R: Cross-References)",
       () => {
         if (isDrawerOpen) {
           closeCommentaryDrawer();
         } else {
-          const firstVerse = (p.verses && parseVerseRangeSpec(p.verses)?.min) || 1;
-          openCommentaryDrawer(p.book, p.chapter, firstVerse);
+          openCommentaryDrawer(p.book, p.chapter, getContextualStudyVerse(p));
         }
       },
       isDrawerOpen,
@@ -4346,8 +4518,8 @@
       });
     }, isCleanView, true));
 
-    // Settings Button (opens on-page modal with all advanced options)
-    const settingsBtn = createBtn("⚙ Settings", "Extension Settings & Advanced Options (Click to open, right-click for options tab)", () => {
+    // Settings Button (opens on-page Quick Settings modal)
+    const settingsBtn = createBtn("⚙ Settings", "Quick Settings (Click for quick menu, right-click for full settings page)", () => {
       openSettingsModal();
     }, isSettingsModalOpen, true);
     settingsBtn.classList.add("bbe-settings-btn");
@@ -4407,17 +4579,6 @@
         ));
       }
       bar.appendChild(compRow);
-    }
-
-    // Subtle Scroll Progress Bar along bottom edge of floating pill
-    if (S.showScrollProgress !== false) {
-      const scrollLine = document.createElement("div");
-      scrollLine.className = "bbe-scroll-progress-line";
-      const scrollFill = document.createElement("div");
-      scrollFill.className = "bbe-scroll-progress-fill";
-      scrollLine.appendChild(scrollFill);
-      bar.appendChild(scrollLine);
-      updateScrollProgress();
     }
 
     fitBarWidth();
@@ -4956,6 +5117,33 @@
   let isSettingsModalOpen = false;
   let activeSettingsTab = "shortcuts";
   let recordingKeyForVersion = null;
+  let settingsTabsScrollLeft = 0;
+  let isDraggingSettingsTabs = false;
+  let settingsTabsDidDrag = false;
+  let settingsTabsStartX = 0;
+  let settingsTabsDragStartScroll = 0;
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isDraggingSettingsTabs) return;
+    const tabsEl = document.querySelector("#bbe-shortcuts-modal .bbe-modal-tabs");
+    if (!tabsEl) return;
+    e.preventDefault();
+    const x = e.pageX - tabsEl.getBoundingClientRect().left;
+    const walk = (x - settingsTabsStartX) * 1.35;
+    if (Math.abs(walk) > 4) {
+      settingsTabsDidDrag = true;
+    }
+    tabsEl.scrollLeft = settingsTabsDragStartScroll - walk;
+    settingsTabsScrollLeft = tabsEl.scrollLeft;
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (!isDraggingSettingsTabs) return;
+    isDraggingSettingsTabs = false;
+    const tabsEl = document.querySelector("#bbe-shortcuts-modal .bbe-modal-tabs");
+    if (tabsEl) tabsEl.classList.remove("grabbing");
+    setTimeout(() => { settingsTabsDidDrag = false; }, 60);
+  });
 
   function closeSettingsModal() {
     isSettingsModalOpen = false;
@@ -5031,6 +5219,11 @@
         // Single alphanumeric character
         if (/^[a-zA-Z0-9]$/.test(e.key)) {
           const assignedKey = e.key.toLowerCase();
+          if (typeof BBE_RESERVED_STUDY_KEYS !== "undefined" && BBE_RESERVED_STUDY_KEYS[assignedKey]) {
+            showToast(`Key [${assignedKey.toUpperCase()}] is reserved for ${BBE_RESERVED_STUDY_KEYS[assignedKey]}`);
+            renderSettingsModalContent();
+            return;
+          }
           const updated = { ...(S.customShortcuts || BBE_KEY_MAP) };
 
           // Clear any existing assignment for this version
@@ -5089,24 +5282,26 @@
 
     modal.innerHTML = `
       <div class="bbe-modal-header">
-        <div class="bbe-modal-title">
-          <span>⚙ Deep Bible Settings</span>
+        <div class="bbe-modal-title-wrap">
+          <div class="bbe-modal-title">
+            <span>⚡ Quick Settings</span>
+          </div>
+          <div class="bbe-modal-subtitle">Quick menu — open <b>Full Settings</b> for all options</div>
         </div>
         <div class="bbe-modal-header-actions">
-          <a href="https://forms.gle/FN8w2g7MakzTS9GZ9" target="_blank" rel="noopener noreferrer" class="bbe-modal-feedback-btn" id="bbe-modal-feedback-btn" title="Submit feedback, report a bug, or request a feature">💬 Feedback / Bugs ↗</a>
-          <button type="button" class="bbe-modal-reset-btn" id="bbe-modal-reset-all-btn" title="Reset all settings and customizations to brand-new first-install state">↺ Reset to First Install</button>
-          <button type="button" class="bbe-modal-ext-tab-btn" id="bbe-modal-ext-tab-btn" title="Open extension options in new browser tab">Open Options Tab ↗</button>
+          <a href="https://forms.gle/FN8w2g7MakzTS9GZ9" target="_blank" rel="noopener noreferrer" class="bbe-modal-feedback-btn" id="bbe-modal-feedback-btn" title="Submit feedback, report a bug, or request a feature">💬 Feedback ↗</a>
+          <button type="button" class="bbe-modal-reset-btn" id="bbe-modal-reset-all-btn" title="Reset all settings and customizations to brand-new first-install state">↺ Reset</button>
+          <button type="button" class="bbe-modal-ext-tab-btn" id="bbe-modal-ext-tab-btn" title="Open the full Deep Bible Settings page in a new tab">⚙ Full Settings ↗</button>
           <button type="button" class="bbe-modal-close" id="bbe-modal-close-btn" title="Close (Esc)">✕</button>
         </div>
       </div>
-      <div class="bbe-modal-tabs">
+      <div class="bbe-modal-tabs" title="Drag left/right or scroll to view more sections">
         <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'shortcuts' ? 'active' : ''}" data-tab="shortcuts">⚡ Shortcuts &amp; Versions</button>
         <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'typography' ? 'active' : ''}" data-tab="typography">📖 Reading &amp; Typography</button>
         <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'animation' ? 'active' : ''}" data-tab="animation">⚡ Navigation &amp; Reading</button>
         <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'study' ? 'active' : ''}" data-tab="study">💬 Study &amp; Lexicon</button>
         <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'toolbar' ? 'active' : ''}" data-tab="toolbar">🛠 Floating Toolbar</button>
         <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'distractions' ? 'active' : ''}" data-tab="distractions">👁 Distraction-Free</button>
-        <button type="button" class="bbe-modal-tab ${activeSettingsTab === 'css' ? 'active' : ''}" data-tab="css">🎨 Custom CSS</button>
       </div>
       ${retiredBannerHtml}
       <div class="bbe-modal-body" id="bbe-modal-tab-body"></div>
@@ -5158,9 +5353,35 @@
       });
     }
 
-    // Wire up tabs
+    // Wire up grab-to-scroll + wheel scroll on tabs bar (preserving scroll position across tab switches)
+    const tabsEl = modal.querySelector(".bbe-modal-tabs");
+    if (tabsEl) {
+      tabsEl.scrollLeft = settingsTabsScrollLeft;
+      tabsEl.addEventListener("scroll", () => {
+        settingsTabsScrollLeft = tabsEl.scrollLeft;
+      }, { passive: true });
+      tabsEl.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        isDraggingSettingsTabs = true;
+        settingsTabsDidDrag = false;
+        settingsTabsStartX = e.pageX - tabsEl.getBoundingClientRect().left;
+        settingsTabsDragStartScroll = tabsEl.scrollLeft;
+        tabsEl.classList.add("grabbing");
+      });
+      tabsEl.addEventListener("wheel", (e) => {
+        if (e.deltaY !== 0) {
+          e.preventDefault();
+          tabsEl.scrollLeft += e.deltaY;
+          settingsTabsScrollLeft = tabsEl.scrollLeft;
+        }
+      }, { passive: false });
+    }
+
+    // Wire up tabs (ignore clicks triggered by drag release)
     modal.querySelectorAll(".bbe-modal-tab").forEach(btn => {
       btn.addEventListener("click", () => {
+        if (settingsTabsDidDrag) return;
+        if (tabsEl) settingsTabsScrollLeft = tabsEl.scrollLeft;
         activeSettingsTab = btn.dataset.tab;
         renderSettingsModalContent();
       });
@@ -5172,9 +5393,38 @@
     if (activeSettingsTab === "shortcuts") {
       bodyEl.innerHTML = `
         <div class="bbe-modal-card">
+          <div class="bbe-modal-card-title">Built-in Study &amp; Navigation Hotkeys</div>
+          <div class="bbe-modal-hint">
+            Always active on Bible.com. <b>C</b> and <b>R</b> are reserved and cannot be assigned to translations.
+          </div>
+          <div class="bbe-shortcuts-grid">
+            <div class="bbe-shortcut-row">
+              <div><div class="bbe-shortcut-abbr">Commentary</div><div class="bbe-shortcut-name">Open / toggle (Reserved)</div></div>
+              <div class="bbe-shortcut-actions"><span class="bbe-key-capture-btn" style="cursor:default;opacity:0.85;">C</span></div>
+            </div>
+            <div class="bbe-shortcut-row">
+              <div><div class="bbe-shortcut-abbr">Cross-References</div><div class="bbe-shortcut-name">Open / toggle TSK (Reserved)</div></div>
+              <div class="bbe-shortcut-actions"><span class="bbe-key-capture-btn" style="cursor:default;opacity:0.85;">R</span></div>
+            </div>
+            <div class="bbe-shortcut-row">
+              <div><div class="bbe-shortcut-abbr">Word Study</div><div class="bbe-shortcut-name">Toggle Strong's Lexicon</div></div>
+              <div class="bbe-shortcut-actions"><span class="bbe-key-capture-btn" style="cursor:default;opacity:0.85;">W</span></div>
+            </div>
+            <div class="bbe-shortcut-row">
+              <div><div class="bbe-shortcut-abbr">Quick Highlight</div><div class="bbe-shortcut-name">Highlight selected verse</div></div>
+              <div class="bbe-shortcut-actions"><span class="bbe-key-capture-btn" style="cursor:default;opacity:0.85;">H</span></div>
+            </div>
+            <div class="bbe-shortcut-row">
+              <div><div class="bbe-shortcut-abbr">Prev / Next Chapter</div><div class="bbe-shortcut-name">Instant chapter switch</div></div>
+              <div class="bbe-shortcut-actions"><span class="bbe-key-capture-btn" style="cursor:default;opacity:0.85;width:auto;padding:0 7px;">← / →</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="bbe-modal-card">
           <div class="bbe-modal-card-title">Single-Key Translation Shortcuts</div>
           <div class="bbe-modal-hint">
-            Click any shortcut key button below, then press a single letter or number to assign it. Press Backspace or ✕ to clear.
+            Click any shortcut key button below, then press a single letter or number to assign it (<b>C</b> and <b>R</b> are reserved for Study tools). Press Backspace or ✕ to clear.
           </div>
           <div class="bbe-shortcuts-grid" id="bbe-modal-shortcuts-grid"></div>
         </div>
@@ -5429,6 +5679,10 @@
           const finalId = rawId || resolved.id;
           const finalName = rawName || resolved.name || finalAbbr;
           const finalKey = rawKey || resolved.shortcut || "";
+
+          if (finalKey && typeof BBE_RESERVED_STUDY_KEYS !== "undefined" && BBE_RESERVED_STUDY_KEYS[finalKey]) {
+            throw new Error(`Key [${finalKey.toUpperCase()}] is reserved for ${BBE_RESERVED_STUDY_KEYS[finalKey]}. Please choose another shortcut key.`);
+          }
 
           const updatedUserTrans = { ...(S.userTranslations || {}) };
           updatedUserTrans[finalAbbr] = { id: finalId, name: finalName, short: finalAbbr };
@@ -5877,8 +6131,8 @@
             <div class="bbe-input-group">
               <label class="bbe-input-label">Drawer Dock Position</label>
               <select id="bbe-modal-dock-select" class="bbe-modal-input">
-                <option value="right">Right Sidebar</option>
                 <option value="bottom">Bottom Panel (Logos Bible style)</option>
+                <option value="right">Right Sidebar</option>
               </select>
             </div>
           </div>
@@ -5893,40 +6147,16 @@
         </div>
 
         <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Modern &amp; Expository Commentaries</div>
-          <div class="bbe-modal-hint">Choose which modern evangelical and verse-by-verse expository commentaries to include in the Study Commentary drawer.</div>
+          <div class="bbe-modal-card-title">Commentary Sources &amp; Display Order (26 Sources)</div>
+          <div class="bbe-modal-hint">
+            Includes <b>4 Modern</b> external commentaries plus <b>22 Classic</b> commentators parsed automatically from BibleHub. Toggle any source on/off, or click <b>Top</b> / <b>↑</b> / <b>↓</b> to choose which displays first.
+          </div>
 
-          <label class="bbe-modal-row" style="margin-top:8px;">
-            <div>
-              <div class="bbe-modal-row-label">The Gospel Coalition (TGC) Bible Commentary</div>
-              <div class="bbe-modal-row-hint">Theological and pastoral exposition with pericope cards and 1-click deep jumping to exact section anchors</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-comm-tgc-check">
-          </label>
-
-          <label class="bbe-modal-row" style="margin-top:6px;">
-            <div>
-              <div class="bbe-modal-row-label">David Guzik — Enduring Word</div>
-              <div class="bbe-modal-row-hint">Popular verse-by-verse pastoral commentary with historical background and modern life application</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-comm-guzik-check">
-          </label>
-
-          <label class="bbe-modal-row" style="margin-top:6px;">
-            <div>
-              <div class="bbe-modal-row-label">Dr. Thomas Constable — Expository Notes (DTS)</div>
-              <div class="bbe-modal-row-hint">45-year Dallas Theological Seminary professor's 66-book exegetical and historical notes (Sonic Light)</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-comm-constable-check">
-          </label>
-
-          <label class="bbe-modal-row" style="margin-top:6px;">
-            <div>
-              <div class="bbe-modal-row-label">Dr. Bob Utley — Free Bible Commentary</div>
-              <div class="bbe-modal-row-hint">Verse-by-verse hermeneutical, contextual, and linguistic commentary series for pastors and missionaries</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-comm-utley-check">
-          </label>
+          <div class="bbe-comm-order-toolbar">
+            <input type="text" id="bbe-modal-comm-filter" class="bbe-modal-input bbe-comm-filter-input" placeholder="Filter commentators (e.g. Henry, Guzik, Calvin...)">
+            <button type="button" id="bbe-modal-comm-reset-btn" class="bbe-comm-reset-btn">↺ Reset Order &amp; Show All</button>
+          </div>
+          <div id="bbe-modal-comm-list" class="bbe-comm-order-list"></div>
         </div>
 
         <div class="bbe-modal-card">
@@ -6151,7 +6381,7 @@
         await bbeSave({ defaultStudyTab: studyTabSelect.value });
       });
 
-      dockSelect.value = S.commentaryDock || "right";
+      dockSelect.value = S.commentaryDock || "bottom";
       dockSelect.addEventListener("change", async () => {
         S.commentaryDock = dockSelect.value;
         await bbeSave({ commentaryDock: dockSelect.value });
@@ -6167,39 +6397,100 @@
         if (p) renderVerseBadges(p, true);
       });
 
-      const commTgcCheck = bodyEl.querySelector("#bbe-modal-comm-tgc-check");
-      const commGuzikCheck = bodyEl.querySelector("#bbe-modal-comm-guzik-check");
-      const commConstableCheck = bodyEl.querySelector("#bbe-modal-comm-constable-check");
-      const commUtleyCheck = bodyEl.querySelector("#bbe-modal-comm-utley-check");
+      const commFilterInput = bodyEl.querySelector("#bbe-modal-comm-filter");
+      const commResetBtn = bodyEl.querySelector("#bbe-modal-comm-reset-btn");
+      const commListEl = bodyEl.querySelector("#bbe-modal-comm-list");
 
-      if (commTgcCheck) {
-        commTgcCheck.checked = S.commEnableTgc !== false;
-        commTgcCheck.addEventListener("change", async () => {
-          S.commEnableTgc = commTgcCheck.checked;
-          await bbeSave({ commEnableTgc: commTgcCheck.checked });
+      const renderModalCommSources = () => {
+        if (!commListEl) return;
+        const q = (commFilterInput ? commFilterInput.value : "").trim().toLowerCase();
+        const ordered = bbeGetOrderedCommentarySources(S);
+        commListEl.replaceChildren();
+
+        let visibleRank = 0;
+        ordered.forEach((src, idx) => {
+          if (src.enabled) visibleRank += 1;
+          if (q && !src.label.toLowerCase().includes(q) && !src.desc.toLowerCase().includes(q)) return;
+
+          const row = document.createElement("div");
+          row.className = "bbe-comm-order-row" + (src.enabled ? "" : " is-hidden");
+
+          const rankBadge = document.createElement("span");
+          rankBadge.className = "bbe-comm-rank";
+          rankBadge.textContent = src.enabled ? `#${visibleRank}` : "Off";
+
+          const info = document.createElement("div");
+          info.className = "bbe-comm-order-info";
+          const titleLine = document.createElement("div");
+          titleLine.className = "bbe-comm-order-title";
+          titleLine.textContent = src.label + " ";
+          const groupTag = document.createElement("span");
+          groupTag.className = "bbe-comm-source-badge " + (src.group === "modern" ? "is-modern" : "is-classic");
+          groupTag.textContent = src.group === "modern" ? "Modern" : "BibleHub";
+          titleLine.appendChild(groupTag);
+          const descLine = document.createElement("div");
+          descLine.className = "bbe-comm-order-desc";
+          descLine.textContent = src.desc;
+          info.appendChild(titleLine);
+          info.appendChild(descLine);
+
+          const controls = document.createElement("div");
+          controls.className = "bbe-comm-order-controls";
+
+          const makeOrderBtn = (label, title, action, disabled) => {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "bbe-comm-order-btn";
+            btn.textContent = label;
+            btn.title = title;
+            btn.disabled = disabled;
+            btn.addEventListener("click", async () => {
+              const patch = bbeBuildCommentaryOrderPatch(action, src.key, S);
+              Object.assign(S, patch);
+              await bbeSave(patch);
+              renderModalCommSources();
+              refreshOpenCommentaryDrawer(false);
+            });
+            return btn;
+          };
+
+          controls.appendChild(makeOrderBtn("Top", "Move to #1 (display first)", "top", idx === 0));
+          controls.appendChild(makeOrderBtn("↑", "Move up", "up", idx === 0));
+          controls.appendChild(makeOrderBtn("↓", "Move down", "down", idx === ordered.length - 1));
+
+          const toggle = document.createElement("input");
+          toggle.type = "checkbox";
+          toggle.checked = src.enabled;
+          toggle.title = src.enabled ? `Hide ${src.label}` : `Show ${src.label}`;
+          toggle.addEventListener("change", async () => {
+            const patch = bbeBuildCommentaryTogglePatch(src.key, toggle.checked, S);
+            Object.assign(S, patch);
+            await bbeSave(patch);
+            renderModalCommSources();
+            refreshOpenCommentaryDrawer(toggle.checked && src.group === "modern");
+          });
+          controls.appendChild(toggle);
+
+          row.appendChild(rankBadge);
+          row.appendChild(info);
+          row.appendChild(controls);
+          commListEl.appendChild(row);
+        });
+      };
+
+      if (commFilterInput) commFilterInput.addEventListener("input", renderModalCommSources);
+      if (commResetBtn) {
+        commResetBtn.addEventListener("click", async () => {
+          const patch = bbeBuildCommentaryOrderPatch("reset", null, S);
+          Object.assign(S, patch);
+          await bbeSave(patch);
+          if (commFilterInput) commFilterInput.value = "";
+          renderModalCommSources();
+          refreshOpenCommentaryDrawer(true);
+          showToast("↺ Commentary order & visibility reset");
         });
       }
-      if (commGuzikCheck) {
-        commGuzikCheck.checked = S.commEnableGuzik !== false;
-        commGuzikCheck.addEventListener("change", async () => {
-          S.commEnableGuzik = commGuzikCheck.checked;
-          await bbeSave({ commEnableGuzik: commGuzikCheck.checked });
-        });
-      }
-      if (commConstableCheck) {
-        commConstableCheck.checked = S.commEnableConstable !== false;
-        commConstableCheck.addEventListener("change", async () => {
-          S.commEnableConstable = commConstableCheck.checked;
-          await bbeSave({ commEnableConstable: commConstableCheck.checked });
-        });
-      }
-      if (commUtleyCheck) {
-        commUtleyCheck.checked = S.commEnableUtley !== false;
-        commUtleyCheck.addEventListener("change", async () => {
-          S.commEnableUtley = commUtleyCheck.checked;
-          await bbeSave({ commEnableUtley: commUtleyCheck.checked });
-        });
-      }
+      renderModalCommSources();
 
       wordStudyCheck.checked = !!S.wordStudyMode;
       wordStudyCheck.addEventListener("change", async () => {
@@ -6318,36 +6609,6 @@
           <div class="bbe-modal-hint" style="margin-bottom:6px;">Default translations to compare:</div>
           <div class="bbe-modal-pills" id="bbe-modal-compare-pills"></div>
         </div>
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">📜 Chapter Scroll Progress</div>
-          <div class="bbe-modal-hint">Subtle reading progress indicator along the floating toolbar.</div>
-
-          <label class="bbe-modal-row">
-            <div>
-              <div class="bbe-modal-row-label">Chapter Scroll Progress Bar</div>
-              <div class="bbe-modal-row-hint">Subtle progress line along the bottom of the floating pill as you scroll down the chapter</div>
-            </div>
-            <input type="checkbox" id="bbe-modal-scrollprog-check">
-          </label>
-        </div>
-
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">🔍 Quick Study Passage Suggestions</div>
-          <div class="bbe-modal-hint">Passage suggestion chips shown under the scripture search pill. Automatically retires after the first 3 times it is shown to keep reading distraction-free.</div>
-
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding:8px 12px;background:rgba(0,0,0,0.03);border-radius:8px;">
-            <div>
-              <div style="font-weight:600;font-size:13px;">Status</div>
-              <div style="font-size:12px;color:${(S.quickStudyShowCount || 0) >= 3 ? '#16a34a' : '#64748b'};margin-top:2px;">
-                ${(S.quickStudyShowCount || 0) >= 3 ? '✓ Automatically retired (shown 3 of 3 times)' : `Active: Shown ${(S.quickStudyShowCount || 0)} of 3 times`}
-              </div>
-            </div>
-            <button type="button" class="bbe-btn" id="bbe-modal-reset-quickstudy-btn" style="padding:6px 14px;font-size:12px;">
-              ${(S.quickStudyShowCount || 0) >= 3 ? 'Show Again (Reset 3-Time Counter)' : 'Reset Counter to 0'}
-            </button>
-          </div>
-        </div>
       `;
 
       const behaviorSelect = bodyEl.querySelector("#bbe-modal-toolbar-behavior");
@@ -6355,7 +6616,6 @@
       const pillsContainer = bodyEl.querySelector("#bbe-modal-toolbar-pills");
       const compareLayoutSelect = bodyEl.querySelector("#bbe-modal-compare-layout");
       const comparePillsContainer = bodyEl.querySelector("#bbe-modal-compare-pills");
-      const scrollProgCheck = bodyEl.querySelector("#bbe-modal-scrollprog-check");
       const aaMenuCheck = bodyEl.querySelector("#bbe-modal-aa-menu-check");
 
       const restoreToolbarPillsBtn = bodyEl.querySelector("#bbe-restore-all-toolbar-pills-btn");
@@ -6376,28 +6636,6 @@
           S.showAaMenu = aaMenuCheck.checked;
           await bbeSave({ showAaMenu: aaMenuCheck.checked });
           showToast(aaMenuCheck.checked ? "✓ Aa menu restored to floating pill" : "Aa menu retired to Settings");
-          lastRenderKey = "";
-          const p = bbeParsePath(location.pathname, getAllVersions());
-          if (p) renderToolbar(p);
-        });
-      }
-
-      scrollProgCheck.checked = S.showScrollProgress !== false;
-      scrollProgCheck.addEventListener("change", async () => {
-        S.showScrollProgress = scrollProgCheck.checked;
-        await bbeSave({ showScrollProgress: scrollProgCheck.checked });
-        lastRenderKey = "";
-        const p = bbeParsePath(location.pathname, getAllVersions());
-        if (p) renderToolbar(p);
-      });
-
-      const resetQuickStudyBtn = bodyEl.querySelector("#bbe-modal-reset-quickstudy-btn");
-      if (resetQuickStudyBtn) {
-        resetQuickStudyBtn.addEventListener("click", async () => {
-          S.quickStudyShowCount = 0;
-          await bbeSave({ quickStudyShowCount: 0 });
-          showToast("✓ Quick study suggestions reset (will show 3 times)");
-          renderSettingsModalContent();
           lastRenderKey = "";
           const p = bbeParsePath(location.pathname, getAllVersions());
           if (p) renderToolbar(p);
@@ -6579,35 +6817,6 @@
         renderSettingsModalContent();
       });
     }
-
-    /* ---------------- TAB 7: Custom CSS Overrides ---------------- */
-    else if (activeSettingsTab === "css") {
-      bodyEl.innerHTML = `
-        <div class="bbe-modal-card">
-          <div class="bbe-modal-card-title">Custom CSS Overrides</div>
-          <div class="bbe-modal-hint">Write custom CSS rules that inject directly into Bible.com pages.</div>
-
-          <textarea id="bbe-modal-custom-css" style="width:100%;height:140px;box-sizing:border-box;font-family:monospace;font-size:12px;padding:8px;border:1px solid #cbd5e1;border-radius:6px;resize:vertical;" placeholder="/* Extra CSS overrides here */">${S.customCss || ""}</textarea>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
-            <span id="bbe-modal-css-saved" style="font-size:11px;color:#16a34a;font-weight:600;"></span>
-            <button type="button" class="bbe-add-submit-btn" id="bbe-modal-css-save-btn">Save CSS</button>
-          </div>
-        </div>
-      `;
-
-      const cssArea = bodyEl.querySelector("#bbe-modal-custom-css");
-      const saveBtn = bodyEl.querySelector("#bbe-modal-css-save-btn");
-      const savedMsg = bodyEl.querySelector("#bbe-modal-css-saved");
-
-      saveBtn.addEventListener("click", async () => {
-        const css = cssArea.value;
-        S.customCss = css;
-        if (customStyle) customStyle.textContent = css;
-        await bbeSave({ customCss: css });
-        savedMsg.textContent = "✓ Custom CSS applied & saved!";
-        setTimeout(() => { savedMsg.textContent = ""; }, 2000);
-      });
-    }
   }
 
   function renderShortcutsModalContent() {
@@ -6694,7 +6903,6 @@
       S.compareOn,
       S.compareLayout,
       (S.compareVersions || []).join(),
-      S.showScrollProgress,
       S.youversionHighlighting,
       S.showVerseHighlightBadges,
       S.defaultHighlightColor

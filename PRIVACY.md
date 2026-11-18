@@ -27,7 +27,6 @@ All extension settings and reading configurations reside **exclusively in your b
 | **Reader Preferences** | Stores your chosen reading theme (Sepia, Dark, OLED, Historical, etc.), font family, font size, column width, and layout options. | Local Browser Storage (`chrome.storage.sync` / `chrome.storage.local`) |
 | **Translation Shortcuts** | Stores your custom single-key hotkey mappings (e.g. `E` for ESV, `N` for NIV) and added translations. | Local Browser Storage (`chrome.storage.sync`) |
 | **Distraction-Free Toggles** | Stores whether specific site elements (headers, banners, sidebars) are hidden. | Local Browser Storage (`chrome.storage.sync`) |
-| **Custom CSS Rules** | Stores optional user-written CSS style overrides. | Local Browser Storage (`chrome.storage.sync`) |
 | **Parallel Comparison** | Stores your preferred translations to view in side-by-side or interleaved mode. | Local Browser Storage (`chrome.storage.sync`) |
 
 This data remains strictly on your device (or in your private Google Chrome Sync profile if you are signed into Chrome sync). It is never sent to any developer-controlled server.

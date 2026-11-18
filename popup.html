@@ -1049,17 +1049,9 @@
           <span class="nav-icon">👁</span>
           <span>Distraction-Free</span>
         </button>
-        <button type="button" class="nav-item" data-category="progress">
-          <span class="nav-icon">📈</span>
-          <span>Reading Progress</span>
-        </button>
         <button type="button" class="nav-item" data-category="compare">
           <span class="nav-icon">🏛</span>
           <span>Parallel Compare</span>
-        </button>
-        <button type="button" class="nav-item" data-category="css">
-          <span class="nav-icon">🎨</span>
-          <span>Custom CSS</span>
         </button>
         <a href="https://forms.gle/FN8w2g7MakzTS9GZ9" target="_blank" rel="noopener noreferrer" class="nav-item nav-item-external" id="navFeedbackLink" title="Send feedback, report a bug, or request a feature">
           <span class="nav-icon">💬</span>
@@ -1151,11 +1143,41 @@
             </div>
           </div>
 
+          <!-- Built-in Study & Navigation Hotkeys -->
+          <div class="card">
+            <div class="card-title">Built-in Study &amp; Navigation Hotkeys</div>
+            <div class="hint-text" style="margin-bottom:10px;">
+              Always active when reading on Bible.com. <code>C</code> and <code>R</code> are reserved and cannot be reassigned to Bible translations.
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));gap:8px;">
+              <div class="shortcut-row">
+                <div><div style="font-weight:700;font-size:12px;">Commentary</div><div style="font-size:11px;color:var(--text-muted);">Open / switch / close (Reserved)</div></div>
+                <span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 8px;border-radius:6px;background:var(--bg);border:1px solid var(--border);font-weight:700;font-size:12px;">C</span>
+              </div>
+              <div class="shortcut-row">
+                <div><div style="font-weight:700;font-size:12px;">Cross-References</div><div style="font-size:11px;color:var(--text-muted);">Open / switch / close TSK (Reserved)</div></div>
+                <span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 8px;border-radius:6px;background:var(--bg);border:1px solid var(--border);font-weight:700;font-size:12px;">R</span>
+              </div>
+              <div class="shortcut-row">
+                <div><div style="font-weight:700;font-size:12px;">Word Study</div><div style="font-size:11px;color:var(--text-muted);">Toggle Strong's Lexicon mode</div></div>
+                <span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 8px;border-radius:6px;background:var(--bg);border:1px solid var(--border);font-weight:700;font-size:12px;">W</span>
+              </div>
+              <div class="shortcut-row">
+                <div><div style="font-weight:700;font-size:12px;">Quick Highlight</div><div style="font-size:11px;color:var(--text-muted);">Highlight selected verse</div></div>
+                <span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 8px;border-radius:6px;background:var(--bg);border:1px solid var(--border);font-weight:700;font-size:12px;">H</span>
+              </div>
+              <div class="shortcut-row">
+                <div><div style="font-weight:700;font-size:12px;">Prev / Next Chapter</div><div style="font-size:11px;color:var(--text-muted);">Instant chapter navigation</div></div>
+                <span style="display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;padding:0 8px;border-radius:6px;background:var(--bg);border:1px solid var(--border);font-weight:700;font-size:12px;">← / →</span>
+              </div>
+            </div>
+          </div>
+
           <!-- Shortcuts Table -->
           <div class="card">
             <div class="card-title">Custom Translation Shortcuts</div>
             <div class="hint-text" style="margin-bottom:12px;">
-              Click any key box to assign your own single-key shortcut. Press Backspace or ✕ to clear.
+              Click any key box to assign your own single-key shortcut (<code>C</code> and <code>R</code> are reserved for Study tools). Press Backspace or ✕ to clear.
             </div>
             <div id="shortcutsList" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(240px, 1fr));gap:8px;max-height:280px;overflow-y:auto;padding-right:4px;margin-bottom:12px;"></div>
 
@@ -1399,54 +1421,22 @@
                 <div class="hint-text">Choose between a right-side drawer or Logos-style bottom split pane</div>
               </div>
               <select id="commentaryDock" class="form-input">
-                <option value="right">Right Sidebar</option>
                 <option value="bottom">Bottom Split (Logos Style)</option>
+                <option value="right">Right Sidebar</option>
               </select>
             </div>
           </div>
 
           <div class="card">
-            <div class="card-title">Commentary Sources</div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">The Gospel Coalition (TGC)</div>
-                <div class="hint-text">Expository pericope overviews and deep links to TGC Commentary</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="commEnableTgc">
-                <span class="slider"></span>
-              </label>
+            <div class="card-title">Commentary Sources &amp; Display Order (26 Sources)</div>
+            <div class="hint-text" style="margin-bottom:10px;">
+              Includes <strong>4 Modern</strong> external commentaries plus <strong>22 Classic</strong> commentators parsed automatically from BibleHub. Toggle any source on/off, or click <strong>Top</strong> / <strong>↑</strong> / <strong>↓</strong> to choose which displays first.
             </div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">David Guzik (Enduring Word)</div>
-                <div class="hint-text">Verse-by-verse pastoral notes, illustrations &amp; life application</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="commEnableGuzik">
-                <span class="slider"></span>
-              </label>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+              <input type="text" id="popupCommFilter" class="form-input" placeholder="Filter commentators (e.g. Henry, Guzik, Calvin...)" style="flex:1;min-width:180px;">
+              <button type="button" id="popupCommResetBtn" class="btn" style="font-size:12px;padding:6px 12px;cursor:pointer;white-space:nowrap;">↺ Reset Order &amp; Show All</button>
             </div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">Dr. Thomas Constable (DTS Notes)</div>
-                <div class="hint-text">66-book Dallas Theological Seminary exegetical expository commentary</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="commEnableConstable">
-                <span class="slider"></span>
-              </label>
-            </div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">Dr. Bob Utley (Free Bible Commentary)</div>
-                <div class="hint-text">Linguistic, contextual, and hermeneutical verse-by-verse notes</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="commEnableUtley">
-                <span class="slider"></span>
-              </label>
-            </div>
+            <div id="popupCommentaryList" style="display:flex;flex-direction:column;gap:6px;max-height:360px;overflow-y:auto;padding-right:4px;"></div>
           </div>
 
           <div class="card">
@@ -1722,39 +1712,6 @@
           </div>
         </section>
 
-        <!-- ================= 7. READING PROGRESS ================= -->
-        <section class="settings-section" data-section="progress" style="display:none;">
-          <div class="section-title-wrap">
-            <h2 class="section-title">📈 Chapter Reading Progress</h2>
-            <p class="section-desc">Chapter progress indicators and passage suggestion preferences.</p>
-          </div>
-
-          <div class="card">
-            <div class="card-title">Chapter Scroll Progress</div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">Chapter Reading Progress Line</div>
-                <div class="hint-text">Subtle progress indicator along the bottom of the floating pill as you scroll</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" id="showScrollProgress">
-                <span class="slider"></span>
-              </label>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">Quick Study Passage Suggestions</div>
-            <div class="setting-row">
-              <div class="setting-info">
-                <div class="setting-label">Passage Suggestions Dropdown</div>
-                <div class="hint-text" id="quickStudyStatusHint">Auto-retires after first 3 uses to keep interface clean</div>
-              </div>
-              <button type="button" class="btn" id="btnResetQuickStudy" style="font-size:12px;padding:5px 12px;cursor:pointer;">Reset</button>
-            </div>
-          </div>
-        </section>
-
         <!-- ================= 8. PARALLEL COMPARE ================= -->
         <section class="settings-section" data-section="compare" style="display:none;">
           <div class="section-title-wrap">
@@ -1792,24 +1749,6 @@
               Select two or more translations to view side-by-side:
             </div>
             <div class="version-pills" id="comparePills"></div>
-          </div>
-        </section>
-
-        <!-- ================= 9. CUSTOM CSS ================= -->
-        <section class="settings-section" data-section="css" style="display:none;">
-          <div class="section-title-wrap">
-            <h2 class="section-title">🎨 Custom CSS Overrides</h2>
-            <p class="section-desc">Inject custom CSS styling rules directly into Bible.com pages.</p>
-          </div>
-
-          <div class="card">
-            <div class="card-title">Custom CSS Editor</div>
-            <div class="hint-text" style="margin-bottom:8px;">
-              Write your own CSS rules. Automatically saved and applied to all Bible.com tabs in real-time.
-            </div>
-            <textarea id="customCss" placeholder="/* Custom CSS overrides here */
-.bbe-verse-badge { opacity: 0.9 !important; }
-.bbe-bar { border-radius: 9999px !important; }"></textarea>
           </div>
         </section>
 

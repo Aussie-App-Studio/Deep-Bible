@@ -31,6 +31,11 @@ var BBE_KEY_MAP = {
   j: "KJV"
 };
 
+var BBE_RESERVED_STUDY_KEYS = {
+  c: "Commentary",
+  r: "Cross-References"
+};
+
 // Returns merged dictionary of standard versions + user-defined custom translations
 function bbeGetAllVersions(userTranslations) {
   if (!userTranslations || typeof userTranslations !== "object") {
@@ -46,9 +51,11 @@ function bbeGetKeyMap(customShortcuts) {
   }
   const map = {};
   for (const k of Object.keys(customShortcuts)) {
+    const lk = k.toLowerCase();
+    if (BBE_RESERVED_STUDY_KEYS[lk]) continue;
     const v = customShortcuts[k];
     if (v && typeof v === "string") {
-      map[k.toLowerCase()] = v.toUpperCase();
+      map[lk] = v.toUpperCase();
     }
   }
   return map;
@@ -477,12 +484,13 @@ async function bbeResolveTranslation(inputOrData) {
     id: Number(id),
     short: abbr,
     name: name || abbr,
-    shortcut: (shortcut && /^[a-z0-9]$/.test(shortcut)) ? shortcut : ""
+    shortcut: (shortcut && /^[a-z0-9]$/.test(shortcut) && !BBE_RESERVED_STUDY_KEYS[shortcut]) ? shortcut : ""
   };
 }
 
   global.BBE_VERSIONS = BBE_VERSIONS;
   global.BBE_KEY_MAP = BBE_KEY_MAP;
+  global.BBE_RESERVED_STUDY_KEYS = BBE_RESERVED_STUDY_KEYS;
   global.BBE_ALIASES = BBE_ALIASES;
   global.BBE_EXTRA_IDS = BBE_EXTRA_IDS;
   global.BBE_BOOKS = BBE_BOOKS;
@@ -507,6 +515,7 @@ async function bbeResolveTranslation(inputOrData) {
     module.exports = {
       BBE_VERSIONS,
       BBE_KEY_MAP,
+      BBE_RESERVED_STUDY_KEYS,
       BBE_ALIASES,
       BBE_EXTRA_IDS,
       BBE_BOOKS,

@@ -314,6 +314,11 @@
 
     if (/^[a-zA-Z0-9]$/.test(e.key)) {
       const assignedKey = e.key.toLowerCase();
+      if (typeof BBE_RESERVED_STUDY_KEYS !== "undefined" && BBE_RESERVED_STUDY_KEYS[assignedKey]) {
+        showToast(`Key [${assignedKey.toUpperCase()}] is reserved for ${BBE_RESERVED_STUDY_KEYS[assignedKey]}`);
+        renderShortcutsList();
+        return;
+      }
       const updated = { ...(S.customShortcuts || BBE_KEY_MAP) };
 
       // Clear any prior mapping for this version
@@ -469,6 +474,10 @@
         const finalName = rawName || resolved.name || finalAbbr;
         const finalKey = rawKey || resolved.shortcut || "";
 
+        if (finalKey && typeof BBE_RESERVED_STUDY_KEYS !== "undefined" && BBE_RESERVED_STUDY_KEYS[finalKey]) {
+          throw new Error(`Key [${finalKey.toUpperCase()}] is reserved for ${BBE_RESERVED_STUDY_KEYS[finalKey]}. Please choose another shortcut key.`);
+        }
+
         const updatedUserTrans = { ...(S.userTranslations || {}) };
         updatedUserTrans[finalAbbr] = {
           id: finalId,
@@ -592,28 +601,110 @@
     }
   }
 
-  /* ---------------- Quick Study Passage Suggestions Reset ---------------- */
-  const btnResetQuickStudy = document.getElementById("btnResetQuickStudy");
-  const quickStudyStatusHint = document.getElementById("quickStudyStatusHint");
-  function updateQuickStudyStatus() {
-    const count = Number(S.quickStudyShowCount) || 0;
-    if (quickStudyStatusHint) {
-      if (count >= 3) {
-        quickStudyStatusHint.textContent = "Auto-retired (shown 3 of 3 times). Click Reset to show 3 times again.";
-      } else {
-        quickStudyStatusHint.textContent = `Shown ${count} of 3 times (auto-retires after 3 times).`;
-      }
-    }
-  }
-  updateQuickStudyStatus();
-  if (btnResetQuickStudy) {
-    btnResetQuickStudy.addEventListener("click", async () => {
-      S.quickStudyShowCount = 0;
-      await bbeSave({ quickStudyShowCount: 0 });
-      updateQuickStudyStatus();
-      showToast("✓ Quick study suggestions reset (will show 3 times)");
+  /* ---------------- Commentary Sources & Display Order ---------------- */
+  const popupCommFilter = document.getElementById("popupCommFilter");
+  const popupCommResetBtn = document.getElementById("popupCommResetBtn");
+  const popupCommList = document.getElementById("popupCommentaryList");
+
+  function renderCommentarySourcesList() {
+    if (!popupCommList || typeof bbeGetOrderedCommentarySources !== "function") return;
+    const q = (popupCommFilter ? popupCommFilter.value : "").trim().toLowerCase();
+    const ordered = bbeGetOrderedCommentarySources(S);
+    popupCommList.replaceChildren();
+
+    let visibleRank = 0;
+    ordered.forEach((src, idx) => {
+      if (src.enabled) visibleRank += 1;
+      if (q && !src.label.toLowerCase().includes(q) && !src.desc.toLowerCase().includes(q)) return;
+
+      const row = document.createElement("div");
+      row.style.cssText = `display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);opacity:${src.enabled ? "1" : "0.55"};`;
+
+      const rank = document.createElement("span");
+      rank.style.cssText = "min-width:30px;text-align:center;font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px;background:var(--card-bg);border:1px solid var(--border);color:var(--text-muted);";
+      rank.textContent = src.enabled ? `#${visibleRank}` : "Off";
+
+      const info = document.createElement("div");
+      info.style.cssText = "flex:1;min-width:0;";
+      const titleLine = document.createElement("div");
+      titleLine.style.cssText = "font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:6px;flex-wrap:wrap;";
+      titleLine.textContent = src.label;
+      const badge = document.createElement("span");
+      badge.style.cssText = src.group === "modern"
+        ? "font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;background:rgba(37,99,235,0.12);color:#2563eb;"
+        : "font-size:10px;font-weight:700;padding:1px 6px;border-radius:999px;background:rgba(100,116,139,0.14);color:var(--text-muted);";
+      badge.textContent = src.group === "modern" ? "Modern" : "BibleHub";
+      titleLine.appendChild(badge);
+
+      const desc = document.createElement("div");
+      desc.style.cssText = "font-size:11px;color:var(--text-muted);margin-top:2px;";
+      desc.textContent = src.desc;
+      info.appendChild(titleLine);
+      info.appendChild(desc);
+
+      const controls = document.createElement("div");
+      controls.style.cssText = "display:flex;align-items:center;gap:4px;flex-shrink:0;";
+
+      const makeBtn = (label, title, action, disabled) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = label;
+        b.title = title;
+        b.disabled = disabled;
+        b.style.cssText = `padding:3px 7px;font-size:11px;font-weight:600;border-radius:5px;border:1px solid var(--border);background:var(--card-bg);color:var(--text);cursor:${disabled ? "default" : "pointer"};opacity:${disabled ? "0.4" : "1"};`;
+        b.addEventListener("click", async () => {
+          const patch = bbeBuildCommentaryOrderPatch(action, src.key, S);
+          Object.assign(S, patch);
+          await bbeSave(patch);
+          renderCommentarySourcesList();
+          showToast(action === "top" ? `Pinned ${src.short} to top` : "Updated commentary order");
+        });
+        return b;
+      };
+
+      controls.appendChild(makeBtn("Top", "Move to #1 (display first)", "top", idx === 0));
+      controls.appendChild(makeBtn("↑", "Move up", "up", idx === 0));
+      controls.appendChild(makeBtn("↓", "Move down", "down", idx === ordered.length - 1));
+
+      const switchLabel = document.createElement("label");
+      switchLabel.className = "switch";
+      switchLabel.style.marginLeft = "4px";
+      switchLabel.title = src.enabled ? `Hide ${src.label}` : `Show ${src.label}`;
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = src.enabled;
+      cb.addEventListener("change", async () => {
+        const patch = bbeBuildCommentaryTogglePatch(src.key, cb.checked, S);
+        Object.assign(S, patch);
+        await bbeSave(patch);
+        renderCommentarySourcesList();
+        showToast(cb.checked ? `Showing ${src.short}` : `Hidden ${src.short}`);
+      });
+      const slider = document.createElement("span");
+      slider.className = "slider";
+      switchLabel.appendChild(cb);
+      switchLabel.appendChild(slider);
+      controls.appendChild(switchLabel);
+
+      row.appendChild(rank);
+      row.appendChild(info);
+      row.appendChild(controls);
+      popupCommList.appendChild(row);
     });
   }
+
+  if (popupCommFilter) popupCommFilter.addEventListener("input", renderCommentarySourcesList);
+  if (popupCommResetBtn) {
+    popupCommResetBtn.addEventListener("click", async () => {
+      const patch = bbeBuildCommentaryOrderPatch("reset", null, S);
+      Object.assign(S, patch);
+      await bbeSave(patch);
+      if (popupCommFilter) popupCommFilter.value = "";
+      renderCommentarySourcesList();
+      showToast("↺ Commentary order & visibility reset");
+    });
+  }
+  renderCommentarySourcesList();
 
   // Handle Welcome Guide links
   document.querySelectorAll('a[href*="welcome.html"]').forEach(a => {
@@ -648,6 +739,7 @@
     renderCustomTransList();
     renderToolbarPills();
     renderComparePills();
+    renderCommentarySourcesList();
   }
 
   renderAll();

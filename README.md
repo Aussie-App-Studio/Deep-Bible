@@ -46,7 +46,7 @@ Key hints dynamically display on each button on the floating top pill. When you 
 - **Instant Passage Jump**: Type any scripture reference (e.g. `John 3:16`, `Romans 8`, `1co 13:4-8`, `Gen 1`, `Ps 23`, `Matt 5:3`) and hit **Enter** to jump straight to that passage in your active translation.
 - **Topic & Keyword Search**: Type any word or phrase (e.g. `faith`, `grace`, `armor of god`, `shepherd`) to run a Bible search directly on Bible.com.
 - **Browser Custom Search Engine Support (Optional)**: If you set up a custom site search in Brave/Chrome settings (e.g. shortcut `b` with URL `https://www.bible.com/search/bible?q=%s`), Deep Bible automatically detects passage queries and redirects straight to the reader view in 0ms.
-- **Quick Study Suggestions (Auto-Retiring)**: Clicking into the search bar surfaces one-click shortcuts for classic study passages (*Genesis 1, Psalm 23, Matthew 5, John 3:16, Romans 8, 1 Corinthians 13*, etc.). To keep the study experience clean and unobtrusive, the suggestions automatically retire after the first 3 times they are shown (can be reset anytime in Settings).
+- **Quick Study Suggestions (Auto-Retiring)**: Clicking into the search bar surfaces one-click shortcuts for classic study passages (*Genesis 1, Psalm 23, Matthew 5, John 3:16, Romans 8, 1 Corinthians 13*, etc.). To keep the study experience clean and unobtrusive, the suggestions automatically retire after the first 3 times they are shown.
 - **Zero-Delay Preloaded Chapter Navigation**: Both the floating side buttons on the left/right and the top pill's `‹` and `›` arrows pre-fetch adjacent chapters in the background. Clicking them switches chapters **instantly in 0ms** with a directional page-turn animation (sliding in from the right for Next, sliding in from the left for Previous)—zero page reloads, zero network delay, zero screen blink.
 - **Left & Right Arrow Key Shortcuts (← / →)**: Press **`ArrowLeft`** or **`ArrowRight`** anywhere on the page to glide smoothly to the previous or next chapter instantly (automatically disabled when typing in search or note fields). Includes subtle visual button depression feedback.
 - **Centered Side Navigation Buttons**: The site's "Previous Chapter" and "Next Chapter" arrow buttons on the left and right are now vertically centered at 50% screen height and cleanly flank the scripture column, staying comfortably within reach without cluttering the bottom of the page.
@@ -63,15 +63,14 @@ Key hints dynamically display on each button on the floating top pill. When you 
 ### 7. Settings Icon on Floating Pill & Full On-Page Settings Dialog
 The floating top pill is the primary interface for the extension. To provide total control without leaving scripture:
 - **`⚙ Settings` Button on the Pill**: Click the `⚙ Settings` button directly on the right side of the floating top pill to open a comprehensive, categorized on-page modal dialog.
-- **7 Organized Settings Categories**:
+- **6 Organized Settings Categories**:
   - **`⚡ Shortcuts & Versions`**: Customize single-key translation shortcuts (click any key box and press a key to rebind; Backspace/✕ to clear), add custom Bible.com versions with automatic background caching, and manage custom translations.
   - **`📖 Reading & Typography`**: Reading theme swatches (⚙ System Default, 📜 Warm Paper Sepia #fbf0d9, ☀️ Clean Light, 🌙 Night Dark, 🖤 OLED Pitch Black, 🌊 Midnight Navy, 🌿 Sage Herb), book typography font family cards (Classic Book Serif, Modern Clean Sans, Warm Monospace, Dyslexia Friendly) with live preview snippet, live sliders for scripture column width (500px - 2200px) with quick presets (750px, 950px, 1200px, Max), toggle to show or retire the Aa reader appearance menu on the floating pill, text size (70% - 180%), and line spacing (1.3 - 2.4).
   - **`⚡ Navigation & Reading`**: Configure zero-delay adjacent chapter preloading, arrow key navigation (← / →), and viewport reading position anchoring.
   - **`💬 Study & Lexicon`**: Select default study tab (Commentary vs. TSK Cross-References vs. Strong's Word Study), choose drawer dock position (Right Sidebar vs. Bottom Logos style), and toggle verse hover badges and Word Study mode.
   - **`🛠 Floating Toolbar`**: Switch toolbar floating behavior (Smart Auto-Hide, Static Top Only, Always Floating), toggle quiet reading auto-dim mode, toggle Aa reader appearance menu on the floating pill, and select which translation pills appear on the bar.
   - **`👁 Distraction-Free`**: Fine-grained switches for header, sidebar, promotional cards, footer, bottom selection drawer, version copyright notices, footnotes, headings, verse numbers, and floating toolbar, plus one-click "Hide All Distractions" and "Show All Elements" presets.
-  - **`🎨 Custom CSS`**: Live custom CSS editor with instant stylesheet injection and persistent saving.
-- **Standalone Options Tab Support**: Click **`Open Options Tab ↗`** in the header to open the settings in a dedicated browser tab whenever you prefer a full-page workspace.
+- **Standalone Full Settings Tab**: Click **`⚙ Full Settings ↗`** in the Quick Settings header to open the full settings in a dedicated browser tab whenever you prefer a full-page workspace.
 
 ### 8. Scripture Commentary Drawer (Modern Expository & Classic BibleHub Integration)
 Access in-depth historical, pastoral, and exegetical commentaries seamlessly while you read:
@@ -245,14 +244,11 @@ All note creation, editing, and persistence is **100% delegated to Bible.com / Y
   - Floating bottom drawer (*Highlight / Copy / Compare / Share*)
   - Footnotes & reference markers (`#`, `a`, `b`)
   - Section headings
-  - Verse numbers
-  - Custom CSS box for personal tweaks.
+  - Verse numbers.
 
-### 17. Unified Passage Navigator & Scroll Progress
+### 17. Unified Passage Navigator
 - **Combined Scripture Search Pill**: Displays current scripture directly inside the search input pill (matching stock Bible.com and BibleGateway behavior). Clicking into the pill auto-selects the text for instant typing/jump, and redundant navigation arrows are eliminated in favor of Bible.com's native full-page arrows.
 - **Auto-Retiring Quick Study Suggestions**: Suggestion chips appear for the first 3 times the scripture search pill is focused, then automatically dismiss permanently to keep your reading distraction-free.
-- **Chapter Scroll Progress Line**: An elegant 2px progress bar along the bottom of the floating study pill that glides smoothly from 0% to 100% as you read down the chapter.
-- **Toggleable Setting**: Scroll progress line can be turned on or off anytime in the extension popup or Settings modal.
 
 ### 18. Extended Reading Themes & Palettes
 - **1-Click Floating Bar Cycle**: Easily cycle through all palettes on the fly using the theme button on the study bar:
