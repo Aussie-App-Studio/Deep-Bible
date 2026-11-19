@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Deep Bible: Study Tools for YouVersion (Bible.com)",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Transform Bible.com into a Study Bible: commentaries, Strong's lexicon, TSK cross-references, 1-key version switching & parallel.",
   "permissions": ["storage"],
   "host_permissions": [
@@ -40,6 +40,7 @@
     {
       "matches": ["https://www.bible.com/*"],
       "js": ["versions.js", "redirect.js"],
+      "css": ["content.css"],
       "run_at": "document_start"
     },
     {
@@ -50,8 +51,7 @@
     },
     {
       "matches": ["https://www.bible.com/*"],
-      "js": ["settings.js", "historical.js", "content.js"],
-      "css": ["content.css"],
+      "js": ["settings.js", "content.js"],
       "run_at": "document_idle"
     }
   ],
@@ -59,16 +59,9 @@
     {
       "resources": [
         "popup.html",
-        "popup.js",
-        "versions.js",
-        "settings.js",
-        "icon16.png",
-        "icon32.png",
-        "icon48.png",
-        "icon128.png",
-        "fonts/*",
-        "welcome/*",
-        "privacy.html"
+        "historical.js",
+        "sermon_mode.js",
+        "fonts/*"
       ],
       "matches": ["https://www.bible.com/*"]
     }

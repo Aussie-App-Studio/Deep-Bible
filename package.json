@@ -1,0 +1,10 @@
+{
+  "name": "deep-bible-extension",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build-release.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

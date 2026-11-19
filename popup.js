@@ -27,14 +27,32 @@
   }
 
   let S = await bbeLoad();
-  const numFields = ["columnWidth", "fontSize", "lineHeight", "historicalSceneDim"];
+  const numFields = ["columnWidth", "fontSize", "lineHeight", "historicalSceneDim", "sermonMaxSaved"];
 
-  // Toast Notification helper
+  // Toast Notification helper with crisp currentColor vector icons
+  const POPUP_TOAST_ICONS = {
+    check: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;"><path d="M20 6 9 17l-5-5"/></svg>',
+    reset: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
+    eyeOff: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>',
+    info: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+  };
+
   let toastTimer = null;
-  function showToast(msg = "✓ Setting saved") {
+  function showToast(msg = "Setting saved", iconKey = null) {
     const toast = document.getElementById("bbe-toast");
     if (!toast) return;
-    toast.textContent = msg;
+    const cleanMsg = String(msg || "Setting saved").replace(/^\s*(?:✓|↺|👁)\s*/u, "");
+    let key = iconKey;
+    if (!key) {
+      const lower = cleanMsg.toLowerCase();
+      if (lower.includes("reset") || lower.includes("restored to first")) key = "reset";
+      else if (lower.includes("distractions hidden")) key = "eyeOff";
+      else if (lower.includes("reserved")) key = "info";
+      else key = "check";
+    }
+    const svg = POPUP_TOAST_ICONS[key] || POPUP_TOAST_ICONS.check;
+    toast.innerHTML = `${svg}<span></span>`;
+    toast.querySelector("span").textContent = cleanMsg;
     toast.classList.add("show");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
@@ -336,8 +354,11 @@
       return;
     }
 
-    if (/^[a-zA-Z0-9]$/.test(e.key)) {
-      const assignedKey = e.key.toLowerCase();
+    const rawKey = /^[a-zA-Z0-9]$/.test(e.key)
+      ? e.key
+      : (/^(?:Key[A-Z]|Digit[0-9])$/.test(e.code || "") ? e.code.slice(-1) : "");
+    if (rawKey) {
+      const assignedKey = rawKey.toLowerCase();
       if (typeof BBE_RESERVED_STUDY_KEYS !== "undefined" && BBE_RESERVED_STUDY_KEYS[assignedKey]) {
         showToast(`Key [${assignedKey.toUpperCase()}] is reserved for ${BBE_RESERVED_STUDY_KEYS[assignedKey]}`);
         renderShortcutsList();
@@ -390,17 +411,20 @@
         }
         const updatedToolbar = (S.toolbarVersions || []).filter(v => v !== uk);
         const updatedCompare = (S.compareVersions || []).filter(v => v !== uk);
+        const updatedCompareBar = (S.compareBarVersions || BBE_ENGLISH_VERSIONS).filter(v => v !== uk);
 
         S.userTranslations = userTrans;
         S.customShortcuts = updatedShortcuts;
         S.toolbarVersions = updatedToolbar;
         S.compareVersions = updatedCompare;
+        S.compareBarVersions = updatedCompareBar;
 
         await bbeSave({
           userTranslations: userTrans,
           customShortcuts: updatedShortcuts,
           toolbarVersions: updatedToolbar,
-          compareVersions: updatedCompare
+          compareVersions: updatedCompare,
+          compareBarVersions: updatedCompareBar
         });
 
         showToast(`Removed ${uk}`);
@@ -467,9 +491,9 @@
 
           const builtIn = BBE_VERSIONS[resolved.short];
           if (builtIn && builtIn.id === resolved.id) {
-            setFeedback(`ℹ ${resolved.short} (${builtIn.name}) is already built in — clicking Add will enable it on your toolbar.`, "var(--primary)");
+            setFeedback(`${resolved.short} (${builtIn.name}) is already built in — clicking Add will enable it on your toolbar.`, "var(--primary)");
           } else {
-            setFeedback(`✨ Ready to add: ${resolved.name} (${resolved.short})`, "var(--primary)");
+            setFeedback(`Ready to add: ${resolved.name} (${resolved.short})`, "var(--primary)");
           }
         }
       } catch (err) {
@@ -485,6 +509,13 @@
     smartInput.addEventListener("paste", () => setTimeout(() => triggerAutoDetect(smartInput.value), 30));
   }
   if (keyInput) {
+    keyInput.addEventListener("keydown", (e) => {
+      if (!/^[a-zA-Z0-9]$/.test(e.key) && /^(?:Key[A-Z]|Digit[0-9])$/.test(e.code || "") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        keyInput.value = e.code.slice(-1).toUpperCase();
+        keyInput.dispatchEvent(new Event("input"));
+      }
+    });
     keyInput.addEventListener("input", () => {
       const k = keyInput.value.trim().toLowerCase();
       if (!k) return;
@@ -496,7 +527,7 @@
       } else {
         const existingMap = bbeGetKeyMap(S.customShortcuts);
         if (existingMap[k]) {
-          setFeedback(`ℹ Key [${k.toUpperCase()}] is currently assigned to ${existingMap[k]} and will be reassigned.`, "#b45309");
+          setFeedback(`Key [${k.toUpperCase()}] is currently assigned to ${existingMap[k]} and will be reassigned.`, "#b45309");
         }
       }
     });
@@ -520,7 +551,7 @@
       const smartVal = smartInput ? smartInput.value.trim() : "";
       const rawKey = keyInput ? keyInput.value.trim().toLowerCase() : "";
 
-      setFeedback("⏳ Looking up translation details...", "var(--text-muted)");
+      setFeedback("Looking up translation details...", "var(--text-muted)");
 
       try {
         if (!smartVal && !detectedTranslation) {
@@ -563,15 +594,18 @@
         }
 
         const updatedToolbar = Array.from(new Set([...(S.toolbarVersions || []), finalAbbr]));
+        const updatedCompareBar = Array.from(new Set([...(S.compareBarVersions || BBE_ENGLISH_VERSIONS), finalAbbr]));
 
         S.userTranslations = updatedUserTrans;
         S.customShortcuts = updatedShortcuts;
         S.toolbarVersions = updatedToolbar;
+        S.compareBarVersions = updatedCompareBar;
 
         await bbeSave({
           userTranslations: updatedUserTrans,
           customShortcuts: updatedShortcuts,
-          toolbarVersions: updatedToolbar
+          toolbarVersions: updatedToolbar,
+          compareBarVersions: updatedCompareBar
         });
 
         const msg = isExistingBuiltIn
@@ -592,41 +626,152 @@
     });
   }
 
+  /* ---------------- Grouped Version Pill Selector Helper ---------------- */
+  function renderGroupedVersionPills(container, selectedKeys, onUpdate) {
+    if (!container) return;
+    const prevDetails = container.querySelector(".version-lang-details");
+    const wasOtherOpen = !!(prevDetails && prevDetails.open);
+    container.innerHTML = "";
+
+    const allVers = bbeGetAllVersions(S.userTranslations);
+    const selectedSet = new Set(selectedKeys);
+    const groups = bbeGroupVersions(allVers, S.userTranslations);
+
+    const buildGrid = (keys) => {
+      const wrap = document.createElement("div");
+      wrap.className = "version-pills";
+      for (const key of keys) {
+        const v = allVers[key];
+        if (!v) continue;
+        const pill = document.createElement("div");
+        const isSel = selectedSet.has(key);
+        pill.className = "v-pill" + (isSel ? " active" : "");
+        pill.textContent = (isSel ? "✓ " : "") + key;
+        pill.title = v.name;
+
+        pill.addEventListener("click", async () => {
+          if (selectedSet.has(key)) {
+            if (selectedSet.size > 1) {
+              selectedSet.delete(key);
+            }
+          } else {
+            selectedSet.add(key);
+          }
+          const ordered = Object.keys(allVers).filter(k => selectedSet.has(k));
+          await onUpdate(ordered);
+        });
+
+        wrap.appendChild(pill);
+      }
+      return wrap;
+    };
+
+    if (groups.english.length > 0) {
+      const lbl = document.createElement("div");
+      lbl.className = "version-group-label";
+      lbl.textContent = "English";
+      container.appendChild(lbl);
+      container.appendChild(buildGrid(groups.english));
+    }
+
+    if (groups.custom.length > 0) {
+      const lbl = document.createElement("div");
+      lbl.className = "version-group-label";
+      lbl.textContent = "Custom";
+      container.appendChild(lbl);
+      container.appendChild(buildGrid(groups.custom));
+    }
+
+    if (groups.other.length > 0) {
+      const otherSelectedCount = groups.other.filter(k => selectedSet.has(k)).length;
+      const details = document.createElement("details");
+      details.className = "version-lang-details";
+      if (wasOtherOpen || otherSelectedCount > 0) {
+        details.open = true;
+      }
+      const summary = document.createElement("summary");
+      summary.className = "version-lang-summary";
+      summary.textContent = otherSelectedCount > 0
+        ? `Other Languages (${otherSelectedCount}/${groups.other.length})`
+        : `Other Languages (${groups.other.length})`;
+      details.appendChild(summary);
+      details.appendChild(buildGrid(groups.other));
+      container.appendChild(details);
+    }
+  }
+
   /* ---------------- Top Pill Toolbar Buttons Selector ---------------- */
   function renderToolbarPills() {
     const toolbarPillsContainer = document.getElementById("toolbarVersionPills");
     if (!toolbarPillsContainer) return;
-    toolbarPillsContainer.innerHTML = "";
+    const selected = (Array.isArray(S.toolbarVersions) && S.toolbarVersions.length > 0)
+      ? S.toolbarVersions
+      : ["ESV", "NIV", "NASB", "NLT", "BSB", "NKJV", "KJV"];
+
+    renderGroupedVersionPills(toolbarPillsContainer, selected, async (ordered) => {
+      S.toolbarVersions = ordered;
+      await bbeSave({ toolbarVersions: ordered });
+      showToast("Top pill versions updated");
+      renderToolbarPills();
+      renderCompareBarPills();
+    });
+  }
+
+  /* ---------------- Compare Sub-Bar Buttons Selector ---------------- */
+  function renderCompareBarPills() {
+    const container = document.getElementById("compareBarVersionPills");
+    if (!container) return;
 
     const allVers = bbeGetAllVersions(S.userTranslations);
-    const selectedToolbar = new Set(S.toolbarVersions || ["ESV", "NIV", "NASB", "NLT", "BSB", "NKJV", "KJV"]);
+    const allKeys = Object.keys(allVers);
+    const englishKeys = BBE_ENGLISH_VERSIONS.filter(k => allVers[k]);
+    const topKeys = (Array.isArray(S.toolbarVersions) && S.toolbarVersions.length > 0)
+      ? S.toolbarVersions.filter(k => allVers[k])
+      : ["ESV", "NIV", "NASB", "NLT", "BSB", "NKJV", "KJV"];
+    const selected = (Array.isArray(S.compareBarVersions) && S.compareBarVersions.length > 0)
+      ? S.compareBarVersions.filter(k => allVers[k])
+      : englishKeys;
 
-    for (const key of Object.keys(allVers)) {
-      const pill = document.createElement("div");
-      pill.className = "v-pill" + (selectedToolbar.has(key) ? " active" : "");
-      pill.textContent = (selectedToolbar.has(key) ? "✓ " : "") + key;
-      pill.title = allVers[key].name;
+    const sameKeys = (a, b) => a.length === b.length && a.every((k, i) => k === b[i]);
 
-      pill.addEventListener("click", async () => {
-        if (selectedToolbar.has(key)) {
-          if (selectedToolbar.size > 1) {
-            selectedToolbar.delete(key);
-            pill.classList.remove("active");
-            pill.textContent = key;
-          }
-        } else {
-          selectedToolbar.add(key);
-          pill.classList.add("active");
-          pill.textContent = "✓ " + key;
-        }
-        const ordered = Object.keys(allVers).filter(k => selectedToolbar.has(k));
-        S.toolbarVersions = ordered;
-        await bbeSave({ toolbarVersions: ordered });
-        showToast("Top pill versions updated");
-      });
+    const engBtn = document.getElementById("compareBarPresetEnglish");
+    const topBtn = document.getElementById("compareBarPresetMatchTop");
+    const allBtn = document.getElementById("compareBarPresetAll");
 
-      toolbarPillsContainer.appendChild(pill);
+    if (engBtn) {
+      engBtn.classList.toggle("active", sameKeys(selected, englishKeys));
+      engBtn.onclick = async () => {
+        S.compareBarVersions = [...englishKeys];
+        await bbeSave({ compareBarVersions: S.compareBarVersions });
+        showToast("Compare bar set to English translations");
+        renderCompareBarPills();
+      };
     }
+    if (topBtn) {
+      topBtn.classList.toggle("active", sameKeys(selected, topKeys));
+      topBtn.onclick = async () => {
+        S.compareBarVersions = [...topKeys];
+        await bbeSave({ compareBarVersions: S.compareBarVersions });
+        showToast("Compare bar matched to top pill");
+        renderCompareBarPills();
+      };
+    }
+    if (allBtn) {
+      allBtn.classList.toggle("active", sameKeys(selected, allKeys));
+      allBtn.onclick = async () => {
+        S.compareBarVersions = [...allKeys];
+        await bbeSave({ compareBarVersions: S.compareBarVersions });
+        showToast("Compare bar set to all translations");
+        renderCompareBarPills();
+      };
+    }
+
+    renderGroupedVersionPills(container, selected, async (ordered) => {
+      S.compareBarVersions = ordered;
+      await bbeSave({ compareBarVersions: ordered });
+      showToast("Compare bar versions updated");
+      renderCompareBarPills();
+    });
   }
 
   /* ---------------- Commentary Sources & Display Order ---------------- */
@@ -934,7 +1079,7 @@
         if (chk) chk.checked = true;
       });
       await bbeSave(patch);
-      showToast("👁 All site distractions hidden");
+      showToast("All site distractions hidden", "eyeOff");
     });
   }
   if (showAllBtn) {
@@ -981,16 +1126,87 @@
       S.defaultHighlightColor = color;
       syncHighlightSwatches();
       await bbeSave({ defaultHighlightColor: color });
-      showToast(`🖍️ Quick Highlight color: ${HL_COLOR_NAMES[color] || color}`);
+      showToast(`Quick Highlight color: ${HL_COLOR_NAMES[color] || color}`);
     });
   });
   syncHighlightSwatches();
+
+  /* ---------------- Saved Sermon Markups (x/5) List in Settings ---------------- */
+  function renderSermonSavedList() {
+    const listEl = document.getElementById("popupSermonSavedList");
+    const headerEl = document.getElementById("popupSermonSavedHeader");
+    if (!listEl) return;
+
+    const renderMap = (chaptersObj) => {
+      const sorted = Object.values(chaptersObj || {}).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      const maxSlots = Number(S.sermonMaxSaved) || 5;
+      if (headerEl) headerEl.textContent = `Saved Sermon Markups (${sorted.length}/${maxSlots})`;
+
+      if (sorted.length === 0) {
+        listEl.innerHTML = `<div class="hint-text" style="padding:6px 0;">No saved Sermon Mode markups yet. Click <b>Sermon</b> on Bible.com to mark up a chapter.</div>`;
+        return;
+      }
+
+      listEl.innerHTML = "";
+      for (const ch of sorted) {
+        const count = Array.isArray(ch.items) ? ch.items.length : 0;
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-subtle, rgba(148,163,184,0.08));";
+
+        const infoLink = document.createElement("a");
+        infoLink.href = `https://www.bible.com/bible/${ch.versionId || 59}/${ch.book}.${ch.chapter}.${ch.version}`;
+        infoLink.target = "_blank";
+        infoLink.rel = "noopener";
+        infoLink.style.cssText = "font-size:12.5px;font-weight:600;color:var(--text);text-decoration:none;flex:1;";
+        infoLink.textContent = `${ch.bookTitle} ${ch.chapter} (${ch.version}) — ${count} mark${count === 1 ? "" : "s"}`;
+        infoLink.title = "Open chapter on Bible.com";
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "clear-btn";
+        delBtn.textContent = "✕";
+        delBtn.title = "Delete saved markup";
+        delBtn.addEventListener("click", () => {
+          delete chaptersObj[ch.key];
+          if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage?.local) {
+            chrome.storage.local.set({ bbe_sermon_saved_v1: { chapters: chaptersObj } }, () => {
+              renderMap(chaptersObj);
+              showToast(`Deleted markup for ${ch.bookTitle} ${ch.chapter}`);
+            });
+          }
+        });
+
+        row.appendChild(infoLink);
+        row.appendChild(delBtn);
+        listEl.appendChild(row);
+      }
+    };
+
+    try {
+      if (typeof chrome !== "undefined" && chrome.runtime?.id && chrome.storage?.local) {
+        chrome.storage.local.get({ bbe_sermon_saved_v1: { chapters: {} } }, (res) => {
+          renderMap((res && res.bbe_sermon_saved_v1 && res.bbe_sermon_saved_v1.chapters) || {});
+        });
+      } else {
+        renderMap({});
+      }
+    } catch (_) {
+      renderMap({});
+    }
+    const sermonMaxEl = document.getElementById("sermonMaxSaved");
+    if (sermonMaxEl && !sermonMaxEl.dataset.boundHeaderSync) {
+      sermonMaxEl.dataset.boundHeaderSync = "1";
+      sermonMaxEl.addEventListener("change", () => renderSermonSavedList());
+    }
+  }
 
   function renderAll() {
     renderShortcutsList();
     renderCustomTransList();
     renderToolbarPills();
+    renderCompareBarPills();
     renderCommentarySourcesList();
+    renderSermonSavedList();
   }
 
   renderAll();

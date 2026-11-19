@@ -59,8 +59,6 @@ html.bbe-on div:has(> * > a[aria-label="Previous Chapter"]) a,
 html.bbe-on [class*="sticky"][class*="z-docked"] a[aria-label*="Chapter"] {
   pointer-events: auto !important;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
-  backdrop-filter: blur(8px) !important;
-  -webkit-backdrop-filter: blur(8px) !important;
   opacity: 0.75 !important;
   transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
               background-color 0.18s ease,
@@ -272,6 +270,8 @@ html #bbe-bar.bbe-hidden,
   visibility: hidden !important;
   pointer-events: none !important;
   box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 /* Static (non-sticky) mode: Sits cleanly at the top of the chapter and scrolls naturally away with text */
@@ -281,6 +281,11 @@ html.bbe-bar-static #bbe-bar {
   transform: none !important;
   opacity: 1 !important;
   pointer-events: auto !important;
+}
+
+html.bbe-bar-static:not(.bbe-theme-historical) #bbe-bar {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 /* Elegant resting appearance when sitting above text at the top of the chapter */
@@ -300,8 +305,6 @@ html.bbe-autodim-bar #bbe-bar.bbe-focused {
   background: rgba(255, 255, 255, 0.97) !important;
   border-color: rgba(0, 0, 0, 0.08) !important;
   box-shadow: 0 8px 28px -4px rgba(0, 0, 0, 0.12), 0 2px 8px -2px rgba(0, 0, 0, 0.06) !important;
-  backdrop-filter: blur(14px) !important;
-  -webkit-backdrop-filter: blur(14px) !important;
 }
 html.dark.bbe-autodim-bar #bbe-bar:hover,
 html.dark.bbe-autodim-bar #bbe-bar:focus-within,
@@ -543,6 +546,7 @@ html.dark .bbe-quick-chip:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 5px;
   height: 30px;
   padding: 0 10px;
   border: 1px solid #e2e8f0;
@@ -645,12 +649,11 @@ html.dark .bbe-customize-btn:hover {
   padding: 12px 14px;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 4px 10px -2px rgba(0, 0, 0, 0.05);
   z-index: 100000;
-  width: 290px;
+  width: 310px;
+  max-width: calc(100vw - 24px);
   display: none;
   flex-direction: column;
-  gap: 10px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  gap: 8px;
 }
 .bbe-versions-popover.open {
   display: flex;
@@ -719,8 +722,6 @@ html.dark .bbe-versions-popover {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 /* Invisible bridge so mouse moving from button to popover never drops hover */
@@ -859,8 +860,6 @@ html.dark .bbe-retire-width-btn:hover {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 /* Invisible bridge so mouse moving from button to popover never drops hover */
@@ -1043,36 +1042,64 @@ html.dark .bbe-theme-swatch.active {
 
 /* Individual Swatch Colors */
 .swatch-system {
-  background: linear-gradient(135deg, #ffffff 50%, #1e222b 50%);
+  background: #f1f5f9;
   border-color: #cbd5e1;
+  color: #334155;
 }
 .swatch-sepia {
   background: #fbf0d9;
   border-color: #dac9a3;
+  color: #6b4c2a;
 }
 .swatch-light {
   background: #ffffff;
-  border-color: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #334155;
 }
 .swatch-dark {
   background: #181a20;
   border-color: #3f4452;
+  color: #cbd5e1;
 }
 .swatch-oled {
   background: #000000;
-  border-color: #333333;
+  border-color: #3f3f46;
+  color: #e4e4e7;
 }
 .swatch-blue {
   background: #0b1329;
   border-color: #1e3056;
+  color: #93c5fd;
 }
 .swatch-green {
   background: #f0f5ee;
   border-color: #bfd5c2;
+  color: #1f4b2c;
 }
 .swatch-historical {
   background: #e6cf9f;
   border-color: #8b2a1a;
+  color: #4a2810;
+}
+
+.bbe-svg-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.bbe-toast-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.92;
+}
+@keyframes bbe-icon-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.bbe-icon-spin {
+  animation: bbe-icon-spin 0.9s linear infinite;
 }
 
 .bbe-retire-aa-btn {
@@ -1113,9 +1140,98 @@ html.dark .bbe-retire-aa-btn:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 6px;
 }
 html.dark .bbe-popover-title {
   color: #94a3b8;
+}
+
+.bbe-popover-presets {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bbe-popover-preset-btn {
+  padding: 2px 7px;
+  border-radius: 9999px;
+  border: 1px solid rgba(100, 116, 139, 0.28);
+  background: transparent;
+  color: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.3;
+}
+.bbe-popover-preset-btn:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.08);
+}
+.bbe-popover-preset-btn.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+
+.bbe-popover-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+html.dark .bbe-popover-section-label {
+  color: #64748b;
+}
+
+.bbe-popover-lang-details {
+  border-top: 1px solid rgba(100, 116, 139, 0.18);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+
+.bbe-popover-lang-summary {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+}
+.bbe-popover-lang-summary::-webkit-details-marker {
+  display: none;
+}
+.bbe-popover-lang-summary::before {
+  content: "▸";
+  font-size: 10px;
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+.bbe-popover-lang-details[open] > .bbe-popover-lang-summary::before {
+  transform: rotate(90deg);
+}
+.bbe-popover-lang-details[open] > .bbe-popover-lang-summary {
+  margin-bottom: 6px;
+}
+.bbe-popover-lang-summary:hover {
+  color: #2563eb;
+}
+html.dark .bbe-popover-lang-summary {
+  color: #94a3b8;
+}
+html.dark .bbe-popover-lang-summary:hover {
+  color: #60a5fa;
 }
 
 .bbe-popover-grid {
@@ -1221,12 +1337,12 @@ html.bbe-hide-switcher #bbe-bar {
   display: flex;
   align-items: center;
   gap: 6px;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
 }
 #bbe-toast.show {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 html.dark #bbe-toast {
   background: rgba(248, 250, 252, 0.95);
@@ -1317,6 +1433,11 @@ html.dark #bbe-drawer {
 html.dark #bbe-drawer.bbe-dock-bottom {
   border-top-color: #2e323b;
   box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.6);
+}
+
+/* Bottom scroll runway while bottom-docked study drawer is active (or holding residual close offset) */
+html.bbe-on body {
+  padding-bottom: var(--bbe-drawer-clearance, 0px) !important;
 }
 
 /* Top Drag Handle for Bottom Dock Mode */
@@ -2120,6 +2241,10 @@ html.dark .bbe-drawer-tabs {
 }
 .bbe-drawer-tab {
   flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   padding: 6px 12px;
   font-size: 12px;
   font-weight: 600;
@@ -3193,8 +3318,6 @@ html.bbe-on.bbe-theme-sepia .bbe-interleaved-sticky-bar {
   justify-content: space-between;
   padding: 8px 12px;
   background: rgba(248, 250, 252, 0.98);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   min-width: 0;
   gap: 6px;
 }
@@ -3462,8 +3585,6 @@ html.dark .bbe-popover-link-btn:hover {
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
   z-index: 100020;
   opacity: 0;
   pointer-events: none;
@@ -3472,6 +3593,8 @@ html.dark .bbe-popover-link-btn:hover {
 #bbe-modal-backdrop.open {
   opacity: 1;
   pointer-events: auto;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 #bbe-shortcuts-modal {
@@ -9132,8 +9255,6 @@ html.bbe-font-dyslexic .bbe-typography-preview {
   gap: 6px;
   padding: 4px 8px;
   background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   border: 1px solid #cbd5e1;
   border-radius: 9999px;
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.08);
@@ -9151,6 +9272,8 @@ html.bbe-font-dyslexic .bbe-typography-preview {
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 .bbe-sel-ref-badge {
   font-size: 11px;
@@ -9419,8 +9542,11 @@ html.dark .bbe-drawer-copy-btn:hover {
 
 /* Custom Pastel Highlight Hue Overrides (Preserves YouVersion Cloud Sync IDs) */
 html.bbe-on [class*="_chapter"] [style*="255, 254, 0"],
+html.bbe-on [class*="_chapter"] [style*="254, 241, 0"],
 html.bbe-on [class*="_chapter"] [style*="fffe00"],
-html.bbe-on [class*="_chapter"] [data-bbe-temp-hl="fffe00"] {
+html.bbe-on [class*="_chapter"] [style*="fef100"],
+html.bbe-on [class*="_chapter"] [data-bbe-temp-hl="fffe00"],
+html.bbe-on [class*="_chapter"] [data-bbe-temp-hl="fef100"] {
   background-color: #fdefc5 !important;
 }
 html.bbe-on [class*="_chapter"] [style*="93, 255, 121"],
@@ -9446,8 +9572,11 @@ html.bbe-on [class*="_chapter"] [data-bbe-temp-hl="ff95ef"] {
 
 /* Warm Paper (Sepia): Nudge Yellow ~8% deeper so it stands out cleanly against #fbf0d9 */
 html.bbe-on.bbe-theme-sepia [class*="_chapter"] [style*="255, 254, 0"],
+html.bbe-on.bbe-theme-sepia [class*="_chapter"] [style*="254, 241, 0"],
 html.bbe-on.bbe-theme-sepia [class*="_chapter"] [style*="fffe00"],
-html.bbe-on.bbe-theme-sepia [class*="_chapter"] [data-bbe-temp-hl="fffe00"] {
+html.bbe-on.bbe-theme-sepia [class*="_chapter"] [style*="fef100"],
+html.bbe-on.bbe-theme-sepia [class*="_chapter"] [data-bbe-temp-hl="fffe00"],
+html.bbe-on.bbe-theme-sepia [class*="_chapter"] [data-bbe-temp-hl="fef100"] {
   background-color: #fae29c !important;
 }
 
@@ -9460,8 +9589,11 @@ html.bbe-on.bbe-theme-green [class*="_chapter"] [data-bbe-temp-hl="5dff79"] {
 
 /* Historical Theme: Translucent watercolor washes so parchment texture shows through */
 html.bbe-on.bbe-theme-historical [class*="_chapter"] [style*="255, 254, 0"],
+html.bbe-on.bbe-theme-historical [class*="_chapter"] [style*="254, 241, 0"],
 html.bbe-on.bbe-theme-historical [class*="_chapter"] [style*="fffe00"],
-html.bbe-on.bbe-theme-historical [class*="_chapter"] [data-bbe-temp-hl="fffe00"] {
+html.bbe-on.bbe-theme-historical [class*="_chapter"] [style*="fef100"],
+html.bbe-on.bbe-theme-historical [class*="_chapter"] [data-bbe-temp-hl="fffe00"],
+html.bbe-on.bbe-theme-historical [class*="_chapter"] [data-bbe-temp-hl="fef100"] {
   background-color: rgba(245, 205, 90, 0.42) !important;
 }
 html.bbe-on.bbe-theme-historical [class*="_chapter"] [style*="93, 255, 121"],
@@ -9487,17 +9619,29 @@ html.bbe-on.bbe-theme-historical [class*="_chapter"] [data-bbe-temp-hl="ff95ef"]
 
 /* Dark / OLED / Midnight Navy Themes: Rich same-hue translucent tints for clear color & crisp light-text contrast */
 html.dark.bbe-on:not(.bbe-theme-sepia):not(.bbe-theme-light):not(.bbe-theme-green):not(.bbe-theme-historical) [class*="_chapter"] [style*="255, 254, 0"],
+html.dark.bbe-on:not(.bbe-theme-sepia):not(.bbe-theme-light):not(.bbe-theme-green):not(.bbe-theme-historical) [class*="_chapter"] [style*="254, 241, 0"],
 html.dark.bbe-on:not(.bbe-theme-sepia):not(.bbe-theme-light):not(.bbe-theme-green):not(.bbe-theme-historical) [class*="_chapter"] [style*="fffe00"],
+html.dark.bbe-on:not(.bbe-theme-sepia):not(.bbe-theme-light):not(.bbe-theme-green):not(.bbe-theme-historical) [class*="_chapter"] [style*="fef100"],
 html.dark.bbe-on:not(.bbe-theme-sepia):not(.bbe-theme-light):not(.bbe-theme-green):not(.bbe-theme-historical) [class*="_chapter"] [data-bbe-temp-hl="fffe00"],
+html.dark.bbe-on:not(.bbe-theme-sepia):not(.bbe-theme-light):not(.bbe-theme-green):not(.bbe-theme-historical) [class*="_chapter"] [data-bbe-temp-hl="fef100"],
 html.bbe-on.bbe-theme-dark [class*="_chapter"] [style*="255, 254, 0"],
+html.bbe-on.bbe-theme-dark [class*="_chapter"] [style*="254, 241, 0"],
 html.bbe-on.bbe-theme-dark [class*="_chapter"] [style*="fffe00"],
+html.bbe-on.bbe-theme-dark [class*="_chapter"] [style*="fef100"],
 html.bbe-on.bbe-theme-dark [class*="_chapter"] [data-bbe-temp-hl="fffe00"],
+html.bbe-on.bbe-theme-dark [class*="_chapter"] [data-bbe-temp-hl="fef100"],
 html.bbe-on.bbe-theme-oled [class*="_chapter"] [style*="255, 254, 0"],
+html.bbe-on.bbe-theme-oled [class*="_chapter"] [style*="254, 241, 0"],
 html.bbe-on.bbe-theme-oled [class*="_chapter"] [style*="fffe00"],
+html.bbe-on.bbe-theme-oled [class*="_chapter"] [style*="fef100"],
 html.bbe-on.bbe-theme-oled [class*="_chapter"] [data-bbe-temp-hl="fffe00"],
+html.bbe-on.bbe-theme-oled [class*="_chapter"] [data-bbe-temp-hl="fef100"],
 html.bbe-on.bbe-theme-blue [class*="_chapter"] [style*="255, 254, 0"],
+html.bbe-on.bbe-theme-blue [class*="_chapter"] [style*="254, 241, 0"],
 html.bbe-on.bbe-theme-blue [class*="_chapter"] [style*="fffe00"],
-html.bbe-on.bbe-theme-blue [class*="_chapter"] [data-bbe-temp-hl="fffe00"] {
+html.bbe-on.bbe-theme-blue [class*="_chapter"] [style*="fef100"],
+html.bbe-on.bbe-theme-blue [class*="_chapter"] [data-bbe-temp-hl="fffe00"],
+html.bbe-on.bbe-theme-blue [class*="_chapter"] [data-bbe-temp-hl="fef100"] {
   background-color: rgba(250, 204, 21, 0.24) !important;
 }
 html.dark.bbe-on:not(.bbe-theme-sepia):not(.bbe-theme-light):not(.bbe-theme-green):not(.bbe-theme-historical) [class*="_chapter"] [style*="93, 255, 121"],
@@ -9757,12 +9901,15 @@ html:not(.bbe-hide-header) #bbe-bar {
   box-shadow: 0 10px 25px -4px rgba(217, 119, 6, 0.2), 0 4px 10px -2px rgba(0, 0, 0, 0.08);
   border-radius: 9999px;
   padding: 8px 18px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
   line-height: 1.4;
   white-space: nowrap;
+}
+
+#bbe-temp-hl-banner.show .bbe-temp-hl-content {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .bbe-temp-hl-icon {
@@ -9954,6 +10101,9 @@ html.bbe-on.bbe-theme-historical .bbe-temp-hl-close { color: #8b2a1a; }
   position: absolute;
   inset: 0;
   background: rgba(15, 23, 42, 0.55);
+}
+
+#bbe-signin-required-modal.open .bbe-signin-modal-backdrop {
   backdrop-filter: blur(5px);
   -webkit-backdrop-filter: blur(5px);
 }
@@ -11248,8 +11398,6 @@ html.bbe-on.bbe-theme-historical .bbe-preview-btn:hover {
   inset: 0;
   z-index: 99999999;
   background: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11261,6 +11409,8 @@ html.bbe-on.bbe-theme-historical .bbe-preview-btn:hover {
 .bbe-note-modal-overlay.open {
   opacity: 1;
   pointer-events: auto;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
 }
 
 .bbe-note-modal-card {

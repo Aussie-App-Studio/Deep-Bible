@@ -70,7 +70,57 @@
   const chapterCache = new Map(); // "id|book.chapter" -> Promise<string>
   const chapterMaxVerses = new Map(); // "BOOK.CHAPTER" -> number (e.g. "GAL.3" -> 29)
   let lastRenderKey = "";
+  let lastCompareKey = "";
   let lastPreloadedChapter = "";
+
+  /* ---- Per-render DOM query caches (invalidated by tick() and by any DOM mutation) ---- */
+  const CHAPTER_SEL = '[class*="_chapter"]:not(#bbe-compare-grid *)';
+  let cachedChapterEl = null;
+  let cachedNativeReaderEl = null;
+  let cachedTextEl = null;
+  let cachedVerseOwner = null;
+  let cachedVerseEls = null;
+
+  function invalidateDomCaches() {
+    cachedChapterEl = null;
+    cachedNativeReaderEl = null;
+    cachedTextEl = null;
+    cachedVerseOwner = null;
+    cachedVerseEls = null;
+  }
+
+  // First scripture text container anywhere on the page (native or Deep Bible's verse-page wrapper).
+  function getTextEl() {
+    if (cachedTextEl && cachedTextEl.isConnected) return cachedTextEl;
+    cachedTextEl = document.querySelector('[class*="_yv-bible-text"]');
+    return cachedTextEl;
+  }
+
+  // Bible.com's own scripture container (excludes the Deep Bible verse-page wrapper).
+  function getNativeReaderEl() {
+    if (cachedNativeReaderEl && cachedNativeReaderEl.isConnected) return cachedNativeReaderEl;
+    cachedNativeReaderEl = document.querySelector('[class*="_yv-bible-text"]:not(#bbe-verse-page-reader *)');
+    return cachedNativeReaderEl;
+  }
+
+  // The native (non-compare) chapter element. Re-queried when detached or after invalidation.
+  function getChapterEl() {
+    if (cachedChapterEl && cachedChapterEl.isConnected) return cachedChapterEl;
+    cachedChapterEl = document.querySelector(CHAPTER_SEL);
+    return cachedChapterEl;
+  }
+
+  // Verse elements inside a chapter element; returns a fresh array copy so callers may mutate it.
+  function getChapterVerseEls(chapterEl) {
+    if (!chapterEl) return [];
+    if (cachedVerseOwner === chapterEl && cachedVerseEls && cachedVerseEls.length > 0 &&
+        cachedVerseEls[0].isConnected && chapterEl.contains(cachedVerseEls[0])) {
+      return cachedVerseEls.slice();
+    }
+    cachedVerseEls = Array.from(chapterEl.querySelectorAll('[class*="_verse"][data-usfm]'));
+    cachedVerseOwner = chapterEl;
+    return cachedVerseEls.slice();
+  }
 
   function getAllVersions() {
     return bbeGetAllVersions(S.userTranslations);
@@ -100,22 +150,94 @@
     }
   }
 
-  // Toast notification element
-  let toastEl = document.getElementById("bbe-toast");
-  if (!toastEl) {
-    toastEl = document.createElement("div");
-    toastEl.id = "bbe-toast";
-    document.body.appendChild(toastEl);
+  // Cohesive currentColor line-art vector icon library (inherits active theme ink automatically)
+  const bbeIcon = (paths, size = 14, sw = 2, extraClass = "") =>
+    `<svg class="bbe-svg-icon${extraClass ? " " + extraClass : ""}" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+
+  const BBE_ICONS = {
+    search: (s = 13) => bbeIcon('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/>', s, 2.2),
+    compare: (s = 13) => bbeIcon('<rect x="3" y="4" width="18" height="16" rx="2"/><line x1="12" y1="4" x2="12" y2="20"/>', s, 2),
+    columns: (s = 13) => bbeIcon('<rect x="3" y="4" width="18" height="16" rx="2"/><line x1="12" y1="4" x2="12" y2="20"/>', s, 2),
+    interleaved: (s = 13) => bbeIcon('<rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/>', s, 2),
+    book: (s = 13) => bbeIcon('<path d="M2 5.5A2.5 2.5 0 0 1 4.5 3H9a3 3 0 0 1 3 3v14a2.5 2.5 0 0 0-2.5-2.5H4.5A2.5 2.5 0 0 0 2 20V5.5z"/><path d="M22 5.5A2.5 2.5 0 0 0 19.5 3H15a3 3 0 0 0-3 3v14a2.5 2.5 0 0 1 2.5-2.5h5A2.5 2.5 0 0 1 22 20V5.5z"/>', s, 2),
+    lexicon: (s = 13) => bbeIcon('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><circle cx="12.5" cy="9.5" r="2.5"/><path d="m16 13-1.8-1.8"/>', s, 2),
+    sermon: (s = 13) => bbeIcon('<path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="1.5"/>', s, 2),
+    eye: (s = 13) => bbeIcon('<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>', s, 2),
+    settings: (s = 13) => bbeIcon('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>', s, 1.9),
+    keyboard: (s = 13) => bbeIcon('<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M9 15h6"/>', s, 2),
+    copy: (s = 13) => bbeIcon('<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>', s, 2),
+    link: (s = 13) => bbeIcon('<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>', s, 2),
+    dockBottom: (s = 13) => bbeIcon('<rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="14" x2="21" y2="14"/>', s, 2),
+    dockRight: (s = 13) => bbeIcon('<rect x="3" y="4" width="18" height="16" rx="2"/><line x1="14" y1="4" x2="14" y2="20"/>', s, 2),
+    expand: (s = 13) => bbeIcon('<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>', s, 2),
+    minimize: (s = 13) => bbeIcon('<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>', s, 2),
+    note: (s = 13) => bbeIcon('<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4Z"/>', s, 2),
+    lock: (s = 13) => bbeIcon('<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>', s, 2),
+    cloud: (s = 13) => bbeIcon('<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>', s, 2),
+    spinner: (s = 13) => bbeIcon('<path d="M21 12a9 9 0 1 1-6.219-8.56"/>', s, 2.2, "bbe-icon-spin"),
+    warn: (s = 14) => bbeIcon('<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>', s, 2),
+    error: (s = 14) => bbeIcon('<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>', s, 2),
+    check: (s = 14) => bbeIcon('<path d="M20 6 9 17l-5-5"/>', s, 2.3),
+    zap: (s = 13) => bbeIcon('<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>', s, 2),
+    reset: (s = 13) => bbeIcon('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>', s, 2),
+    bookmark: (s = 13) => bbeIcon('<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>', s, 2),
+    quote: (s = 13) => bbeIcon('<path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/>', s, 1.9),
+    // Minimalist monochrome theme swatch icons
+    themeSystem: (s = 13) => bbeIcon('<circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18z" fill="currentColor" stroke="none"/>', s, 2),
+    themeSepia: (s = 13) => bbeIcon('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>', s, 2),
+    themeLight: (s = 13) => bbeIcon('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>', s, 2),
+    themeDark: (s = 13) => bbeIcon('<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>', s, 2),
+    themeOled: (s = 13) => bbeIcon('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/>', s, 2),
+    themeBlue: (s = 13) => bbeIcon('<path d="M2 10c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/><path d="M2 15c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/>', s, 2),
+    themeGreen: (s = 13) => bbeIcon('<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>', s, 2),
+    themeHistorical: (s = 13) => bbeIcon('<path d="M3 21h18"/><path d="M5 21V7"/><path d="M19 21V7"/><path d="M9 21V7"/><path d="M15 21V7"/><path d="M3 7h18l-9-4-9 4z"/>', s, 1.9)
+  };
+
+  function inferToastIcon(msg) {
+    const s = String(msg || "").toLowerCase();
+    if (s.includes("failed") || s.includes("error")) return "error";
+    if (s.includes("could not") || s.includes("not saved") || s.includes("not removed")) return "warn";
+    if (s.includes("copied")) return "copy";
+    if (s.includes("swapped") || s.includes("jumped") || s.includes("compare:")) return "zap";
+    if (s.includes("word study")) return "lexicon";
+    if (s.includes("sermon")) return "sermon";
+    if (s.includes("reset")) return "reset";
+    if (s.includes("settings") || s.includes("retired")) return "settings";
+    if (s.includes("bible") || s.includes("chapter") || s.includes("navigating")) return "book";
+    return "check";
   }
+
+  // Toast notification element (created lazily on first show to avoid mutating <body> on startup)
+  let toastEl = null;
   let toastTimer = null;
-  function showToast(msg) {
-    if (!toastEl) return;
-    toastEl.textContent = msg;
+  function showToast(msg, durationOrOpts) {
+    if (!document.body) return;
+    if (!toastEl || !toastEl.isConnected) {
+      toastEl = document.getElementById("bbe-toast");
+      if (!toastEl) {
+        toastEl = document.createElement("div");
+        toastEl.id = "bbe-toast";
+        document.body.appendChild(toastEl);
+      }
+    }
+    let duration = 1200;
+    let iconKey = null;
+    if (typeof durationOrOpts === "number") {
+      duration = durationOrOpts;
+    } else if (durationOrOpts && typeof durationOrOpts === "object") {
+      if (typeof durationOrOpts.duration === "number") duration = durationOrOpts.duration;
+      if (durationOrOpts.icon) iconKey = durationOrOpts.icon;
+    }
+    const cleanMsg = String(msg || "").replace(/^\s*(?:⚡|📖|📋|⚠️?|🔬|✏|💾|❌|✓|↺|↖|👁)\s*/u, "");
+    const resolvedKey = iconKey || inferToastIcon(cleanMsg);
+    const iconFn = BBE_ICONS[resolvedKey] || BBE_ICONS.check;
+    toastEl.innerHTML = `<span class="bbe-toast-icon">${iconFn(14)}</span><span class="bbe-toast-msg"></span>`;
+    toastEl.querySelector(".bbe-toast-msg").textContent = cleanMsg;
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
       toastEl.classList.remove("show");
-    }, 1200);
+    }, duration);
   }
 
   /* ---------------- Cookie Consent Suppression ---------------- */
@@ -141,25 +263,149 @@
   suppressCookiePopup();
   setTimeout(suppressCookiePopup, 1200);
 
+  /* ---------------- Lazy-Load Historical Artwork & Instant-Boot Snapshot ---------------- */
+  let historicalLoadPromise = null;
+  function ensureHistoricalLoaded() {
+    if (window.BBE_HIST) return Promise.resolve(window.BBE_HIST);
+    if (historicalLoadPromise) return historicalLoadPromise;
+    try {
+      if (typeof chrome !== "undefined" && chrome.runtime?.getURL) {
+        historicalLoadPromise = import(chrome.runtime.getURL("historical.js"))
+          .then(() => window.BBE_HIST || null)
+          .catch(() => {
+            historicalLoadPromise = null;
+            return null;
+          });
+        return historicalLoadPromise;
+      }
+    } catch (e) {
+      historicalLoadPromise = null;
+    }
+    return Promise.resolve(null);
+  }
+
+  /* ---------------- Lazy-Load Sermon Mode Engine (100% Off by Default) ---------------- */
+  let sermonLoadPromise = null;
+  function buildSermonHostApi() {
+    return {
+      getChapterEl,
+      getTextEl,
+      getSettings: () => S,
+      saveSettings: (patch) => bbeSave(patch),
+      getPassage: () => {
+        const allVers = getAllVersions();
+        const p = bbeParsePath(location.pathname, allVers);
+        if (!p) return null;
+        const versionKey = bbeKeyForId(p.id, allVers) || p.abbr || "ESV";
+        const bookTitle = BBE_BOOK_NAMES[p.book] || p.book;
+        return { ...p, versionKey, bookTitle };
+      },
+      switchToVersion: (targetKey) => {
+        const allVers = getAllVersions();
+        const p = bbeParsePath(location.pathname, allVers);
+        if (p) switchToVersion(targetKey, p);
+      },
+      showToast,
+      onStateChange: () => {
+        lastRenderKey = "";
+        const p = bbeParsePath(location.pathname, getAllVersions());
+        if (p) renderToolbar(p);
+      }
+    };
+  }
+
+  function ensureSermonModeLoaded() {
+    if (window.BBE_SERMON) {
+      window.BBE_SERMON.init(buildSermonHostApi());
+      return Promise.resolve(window.BBE_SERMON);
+    }
+    if (sermonLoadPromise) return sermonLoadPromise;
+    try {
+      if (typeof chrome !== "undefined" && chrome.runtime?.getURL) {
+        sermonLoadPromise = import(chrome.runtime.getURL("sermon_mode.js"))
+          .then(() => {
+            if (window.BBE_SERMON) {
+              window.BBE_SERMON.init(buildSermonHostApi());
+            }
+            return window.BBE_SERMON || null;
+          })
+          .catch(() => {
+            sermonLoadPromise = null;
+            return null;
+          });
+        return sermonLoadPromise;
+      }
+    } catch (e) {
+      sermonLoadPromise = null;
+    }
+    return Promise.resolve(null);
+  }
+
+  let lastBootJson = "";
+  function saveBootSnapshot(histPalette) {
+    try {
+      const snap = !S.enabled ? { enabled: false } : {
+        enabled: true,
+        hideHeader: !!S.hideHeader,
+        hideSidebar: !!S.hideSidebar,
+        hideDistractionCards: !!S.hideDistractionCards,
+        hideFooter: !!S.hideFooter,
+        hideBottomBar: !!S.hideBottomBar,
+        hideFootnotes: !!S.hideFootnotes,
+        hideHeadings: !!S.hideHeadings,
+        hideVerseNumbers: !!S.hideVerseNumbers,
+        hideCopyright: S.hideCopyright !== false,
+        hideSwitcher: !!S.hideSwitcher,
+        toolbarBehavior: S.toolbarBehavior || "smart",
+        autoDimBar: S.autoDimBar !== false,
+        wordStudyMode: !!S.wordStudyMode,
+        fontFamily: S.fontFamily || "serif",
+        readerTheme: S.readerTheme || "system",
+        columnWidth: Number(S.columnWidth) || 950,
+        fontSize: Number(S.fontSize) || 100,
+        lineHeight: Number(S.lineHeight) || 1.8,
+        historicalScene: S.historicalScene || "olive",
+        historicalParchment: S.historicalParchment || "scroll",
+        historicalInk: S.historicalInk || "iron",
+        historicalRubrics: S.historicalRubrics !== false,
+        historicalOrnate: S.historicalOrnate !== false,
+        historicalSceneDim: Math.min(100, Math.max(0, Number(S.historicalSceneDim ?? 15))),
+        historicalBase: histPalette?.base || "",
+        historicalEdge: histPalette?.edge || "",
+        historicalRule: histPalette?.rule || ""
+      };
+      const json = JSON.stringify(snap);
+      if (json !== lastBootJson) {
+        lastBootJson = json;
+        localStorage.setItem("bbe_boot_v1", json);
+      }
+    } catch (e) {}
+  }
+
   /* ---------------- Sync Classes & Layout to DOM ---------------- */
   let lastDomSyncKey = "";
+  let lastSyncedBody = null;
   function syncDomClasses() {
     if (!S.enabled) {
       lastDomSyncKey = "disabled";
+      lastSyncedBody = null;
+      residualClearanceActive = false;
+      setDrawerClearancePx(0);
       if (html.classList.contains("bbe-on")) {
         html.className = html.className.replace(/\bbbe-[a-z0-9\-]+\b/g, "").trim();
       }
-      const yv = document.querySelector('[class*="_yv-bible-text"]');
+      const yv = getTextEl();
       const readerContainer = yv ? yv.parentElement : null;
       if (readerContainer) {
         readerContainer.style.removeProperty("max-width");
         readerContainer.style.removeProperty("width");
       }
+      saveBootSnapshot();
       return;
     }
 
     // Force scripture container width directly on element to override Tailwind
-    const yv = document.querySelector('[class*="_yv-bible-text"]');
+    const yv = getTextEl();
     const readerContainer = yv ? yv.parentElement : null;
     if (readerContainer) {
       const targetW = S.compareOn ? "97vw" : (S.columnWidth + "px");
@@ -180,11 +426,12 @@
     ].join("|");
 
     // When Historical theme is active, also check if newly mounted chapter containers need parchment applied
-    const isHistActive = S.enabled && S.readerTheme === "historical" && window.BBE_HIST;
-    if (domSyncKey === lastDomSyncKey && html.classList.contains("bbe-on") && !isHistActive) {
+    const isHistActive = S.enabled && S.readerTheme === "historical";
+    if (domSyncKey === lastDomSyncKey && html.classList.contains("bbe-on") && lastSyncedBody === document.body && !isHistActive) {
       return;
     }
     lastDomSyncKey = domSyncKey;
+    lastSyncedBody = document.body;
 
     const t = (cls, cond) => {
       const has = html.classList.contains(cls);
@@ -227,55 +474,75 @@
     t("bbe-theme-historical", rTheme === "historical");
 
     // Historical theme: backdrop scene, parchment texture and ink/ornament variants
-    const isHist = S.enabled && rTheme === "historical" && window.BBE_HIST;
+    const isHistTheme = S.enabled && rTheme === "historical";
     const hScene = S.historicalScene || "olive";
     const hParch = S.historicalParchment || "scroll";
     const hInk = S.historicalInk || "iron";
-    t("bbe-hist-scroll", !!isHist && hParch === "scroll");
-    t("bbe-hist-rubric", !!isHist && S.historicalRubrics !== false);
-    t("bbe-hist-ornate", !!isHist && S.historicalOrnate !== false);
-    ["iron", "sepia", "black"].forEach(k => t("bbe-hist-ink-" + k, !!isHist && hInk === k));
-    ["night"].forEach(k => t("bbe-hist-scene-" + k, !!isHist && hScene === k));
+    t("bbe-hist-scroll", !!isHistTheme && hParch === "scroll");
+    t("bbe-hist-rubric", !!isHistTheme && S.historicalRubrics !== false);
+    t("bbe-hist-ornate", !!isHistTheme && S.historicalOrnate !== false);
+    ["iron", "sepia", "black"].forEach(k => t("bbe-hist-ink-" + k, !!isHistTheme && hInk === k));
+    ["night"].forEach(k => t("bbe-hist-scene-" + k, !!isHistTheme && hScene === k));
     const histVars = ["--bbe-hist-scene", "--bbe-hist-parch", "--bbe-hist-base", "--bbe-hist-edge", "--bbe-hist-rule", "--bbe-hist-veil"];
-    if (isHist) {
-      const dim = Math.min(100, Math.max(0, Number(S.historicalSceneDim ?? 15)));
-      const sc = window.BBE_HIST.get("scene", hScene);
-      const pt = window.BBE_HIST.get("parchment", hParch);
-      if (!sc || !pt) {
-        // Artwork is rasterised once, asynchronously; repaint as soon as it is ready.
-        Promise.all([window.BBE_HIST.load("scene", hScene), window.BBE_HIST.load("parchment", hParch)]).then(() => syncDomClasses());
+    let activeHistPt = null;
+    if (isHistTheme) {
+      if (!window.BBE_HIST) {
+        ensureHistoricalLoaded().then((hist) => {
+          if (hist) {
+            lastDomSyncKey = "";
+            syncDomClasses();
+          }
+        });
       } else {
-        const histKey = [hScene, hParch, dim].join("|");
-        if (html.dataset.bbeHistKey !== histKey) {
-          // Never store data: URLs in CSS custom properties on <html>: Bible.com's strict
-          // img-src CSP blocks data: URLs when Blink substitutes var(--*) in the document context.
-          html.style.removeProperty("--bbe-hist-scene");
-          html.style.removeProperty("--bbe-hist-parch");
-          html.style.setProperty("--bbe-hist-base", pt.base);
-          html.style.setProperty("--bbe-hist-edge", pt.edge);
-          html.style.setProperty("--bbe-hist-rule", pt.rule);
-          html.style.setProperty("--bbe-hist-veil", `rgba(18, 10, 4, ${(dim / 100).toFixed(2)})`);
-          html.dataset.bbeHistKey = histKey;
-        }
-        if (document.body) {
-          let bd = document.getElementById("bbe-hist-backdrop");
-          if (!bd) {
-            bd = document.createElement("div");
-            bd.id = "bbe-hist-backdrop";
-            bd.innerHTML = `<canvas id="bbe-hist-backdrop-canvas" width="1920" height="1080"></canvas><div id="bbe-hist-backdrop-veil"></div>`;
-            document.body.prepend(bd);
+        const dim = Math.min(100, Math.max(0, Number(S.historicalSceneDim ?? 15)));
+        const sc = window.BBE_HIST.get("scene", hScene);
+        const pt = window.BBE_HIST.get("parchment", hParch);
+        if (!sc || !pt) {
+          // Artwork is rasterised once, asynchronously; repaint as soon as it is ready.
+          Promise.all([window.BBE_HIST.load("scene", hScene), window.BBE_HIST.load("parchment", hParch)]).then(() => syncDomClasses());
+        } else {
+          activeHistPt = pt;
+          const histKey = [hScene, hParch, dim].join("|");
+          if (html.dataset.bbeHistKey !== histKey) {
+            // Never store data: URLs in CSS custom properties on <html>: Bible.com's strict
+            // img-src CSP blocks data: URLs when Blink substitutes var(--*) in the document context.
+            html.style.removeProperty("--bbe-hist-scene");
+            html.style.removeProperty("--bbe-hist-parch");
+            html.style.setProperty("--bbe-hist-base", pt.base);
+            html.style.setProperty("--bbe-hist-edge", pt.edge);
+            html.style.setProperty("--bbe-hist-rule", pt.rule);
+            html.style.setProperty("--bbe-hist-veil", `rgba(18, 10, 4, ${(dim / 100).toFixed(2)})`);
+            html.dataset.bbeHistKey = histKey;
           }
-          const bdCanvas = bd.querySelector("#bbe-hist-backdrop-canvas");
-          if (bdCanvas && sc.canvas && bdCanvas.dataset.scene !== hScene) {
-            bdCanvas.getContext("2d").drawImage(sc.canvas, 0, 0, bdCanvas.width, bdCanvas.height);
-            bdCanvas.dataset.scene = hScene;
-          }
-          document.querySelectorAll('body div:has(> [class*="_yv-bible-text"]), #bbe-compare-grid').forEach(el => {
-            if (el.dataset.bbeParch !== hParch) {
-              el.style.setProperty("background-image", pt.url, "important");
-              el.dataset.bbeParch = hParch;
+          if (document.body) {
+            let bd = document.getElementById("bbe-hist-backdrop");
+            if (!bd) {
+              bd = document.createElement("div");
+              bd.id = "bbe-hist-backdrop";
+              bd.innerHTML = `<canvas id="bbe-hist-backdrop-canvas" width="1920" height="1080"></canvas><div id="bbe-hist-backdrop-veil"></div>`;
+              document.body.prepend(bd);
             }
-          });
+            const bdCanvas = bd.querySelector("#bbe-hist-backdrop-canvas");
+            if (bdCanvas && sc.canvas && bdCanvas.dataset.scene !== hScene) {
+              bdCanvas.getContext("2d").drawImage(sc.canvas, 0, 0, bdCanvas.width, bdCanvas.height);
+              bdCanvas.dataset.scene = hScene;
+            }
+            // Parchment targets: the <div> wrapping each scripture text container, plus the compare grid.
+            // (Resolved via parentElement: avoids the costly document-wide `div:has(> ...)` scan.)
+            const parchTargets = new Set();
+            document.querySelectorAll('[class*="_yv-bible-text"]').forEach(yvEl => {
+              const par = yvEl.parentElement;
+              if (par && par.tagName === "DIV" && document.body.contains(par)) parchTargets.add(par);
+            });
+            const cmpGridEl = document.getElementById("bbe-compare-grid");
+            if (cmpGridEl) parchTargets.add(cmpGridEl);
+            parchTargets.forEach(el => {
+              if (el.dataset.bbeParch !== hParch) {
+                el.style.setProperty("background-image", pt.url, "important");
+                el.dataset.bbeParch = hParch;
+              }
+            });
+          }
         }
       }
     } else {
@@ -331,6 +598,8 @@
     if (html.style.getPropertyValue("--bbe-lh") !== targetLh) {
       html.style.setProperty("--bbe-lh", targetLh);
     }
+
+    saveBootSnapshot(activeHistPt);
   }
 
   // Storage listener for changes from popup or toolbar
@@ -631,6 +900,30 @@
     } catch (e) {}
   }
 
+  const chapterH1BookTitles = new Map(); // "vid|BOOK" -> localized book title from Bible.com's <h1>
+
+  function getPageBookTitle(p) {
+    if (!p || !p.book) return "";
+    const englishName = BBE_BOOK_NAMES[p.book] || p.book;
+    const key = `${p.id}|${p.book}`;
+    if (chapterH1BookTitles.has(key)) {
+      return chapterH1BookTitles.get(key);
+    }
+    const readerH1 = document.querySelector('[class*="_reader"] h1:not(#bbe-verse-reader-h1)');
+    if (readerH1) {
+      const rawTitle = readerH1.textContent.trim().replace(/\s+\d+(?::[0-9,\-–]+)?\s*$/, "").trim();
+      const isStalePrevBook = readerH1.dataset.bbeBook && readerH1.dataset.bbeBook !== p.book && readerH1.dataset.bbeTitle === rawTitle;
+      const isOtherEnglishBook = Object.entries(BBE_BOOK_NAMES).some(
+        ([code, name]) => code !== p.book && name.toLowerCase() === rawTitle.toLowerCase()
+      );
+      if (rawTitle && !isStalePrevBook && !isOtherEnglishBook) {
+        chapterH1BookTitles.set(key, rawTitle);
+        return rawTitle;
+      }
+    }
+    return chapterH1BookTitles.get(p.book) || englishName;
+  }
+
   function extractChapterNode(htmlOrDoc) {
     const doc = typeof htmlOrDoc === "string"
       ? new DOMParser().parseFromString(htmlOrDoc, "text/html")
@@ -639,6 +932,18 @@
     ensureReaderChunkStyles(doc);
     const chapter = doc.querySelector('[class*="_chapter"]');
     if (!chapter) return null;
+
+    const h1El = doc.querySelector('[class*="_reader"] h1');
+    const vid = doc.querySelector('[data-vid]')?.getAttribute("data-vid") || "";
+    const usfm = chapter.getAttribute("data-usfm") || "";
+    const bookCode = usfm.split(".")[0];
+    if (h1El && bookCode) {
+      const parsedTitle = h1El.textContent.trim().replace(/\s+\d+(?::[0-9,\-–]+)?\s*$/, "").trim();
+      if (parsedTitle) {
+        if (vid) chapterH1BookTitles.set(`${vid}|${bookCode}`, parsedTitle);
+        chapterH1BookTitles.set(bookCode, parsedTitle);
+      }
+    }
 
     // Sanitize scripts and event handlers without allocating temporary arrays per element
     chapter.querySelectorAll("script, style, iframe, object, embed, link").forEach(n => n.remove());
@@ -768,7 +1073,7 @@
     const allVers = getAllVersions();
     const verKey = activeKey || bbeKeyForId(targetP.id, allVers) || targetP.abbr || "ESV";
     const v = allVers[verKey] || { id: targetP.id, short: verKey };
-    const curChapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const curChapterEl = getChapterEl();
     const newPath = bbeBuildPath(v.id, verKey, targetP);
     if (!curChapterEl) {
       location.href = newPath;
@@ -783,18 +1088,23 @@
         else if (res.clampedVerses) targetP.verses = res.clampedVerses;
       }
       await applyChapterTransition(curChapterEl, newHtml, null);
+      fetchCloudHighlightsForChapter(`${targetP.book}.${targetP.chapter}`, v.id, true);
 
       const targetPassageKey = `${v.id}|${targetP.book}.${targetP.chapter}|${targetP.verses || "FULL"}`;
       curChapterEl.dataset.bbePassageKey = targetPassageKey;
       curChapterEl.dataset.bbeFiltered = targetP.verses ? "1" : "";
       curChapterEl.setAttribute("data-usfm", `${targetP.book}.${targetP.chapter}`);
 
-      const bookTitle = BBE_BOOK_NAMES[targetP.book] || targetP.book;
+      const bookTitle = getPageBookTitle({ ...targetP, id: v.id });
       const headingText = targetP.verses
         ? `${bookTitle} ${targetP.chapter}:${targetP.verses}`
         : `${bookTitle} ${targetP.chapter}`;
       const readerH1 = document.querySelector('[class*="_reader"] h1') || document.querySelector("#bbe-verse-reader-h1");
-      if (readerH1) readerH1.textContent = headingText;
+      if (readerH1) {
+        readerH1.textContent = headingText;
+        readerH1.dataset.bbeBook = targetP.book;
+        readerH1.dataset.bbeTitle = bookTitle;
+      }
 
       syncAdjacentChapterLinks({ ...targetP, id: v.id, abbr: verKey });
       const finalPath = bbeBuildPath(v.id, verKey, targetP);
@@ -814,10 +1124,10 @@
       return;
     }
 
-    const nativeReader = document.querySelector('[class*="_yv-bible-text"]:not(#bbe-verse-page-reader *)');
+    const nativeReader = getNativeReaderEl();
     const allVers = getAllVersions();
     const activeKey = bbeKeyForId(p.id, allVers) || p.abbr || "ESV";
-    const bookTitle = BBE_BOOK_NAMES[p.book] || p.book;
+    const bookTitle = getPageBookTitle(p);
     const headingText = p.verses ? `${bookTitle} ${p.chapter}:${p.verses}` : `${bookTitle} ${p.chapter}`;
 
     if (!nativeReader) {
@@ -920,8 +1230,12 @@
     } else {
       html.classList.remove("bbe-verse-view");
       const readerH1 = nativeReader.querySelector('[class*="_reader"] h1');
-      if (readerH1 && readerH1.textContent !== headingText) {
-        readerH1.textContent = headingText;
+      if (readerH1) {
+        if (readerH1.textContent !== headingText) {
+          readerH1.textContent = headingText;
+        }
+        readerH1.dataset.bbeBook = p.book;
+        readerH1.dataset.bbeTitle = bookTitle;
       }
     }
 
@@ -944,7 +1258,7 @@
           fullChapBar.innerHTML = `
             <span class="bbe-full-chapter-info">Showing segment <b>${bbeEscapeHtml(headingText)}</b></span>
             <a href="${fullUrl}" class="bbe-read-full-chapter-btn" id="bbe-read-full-chapter-btn" title="View all of ${bbeEscapeHtml(bookTitle)} ${p.chapter}">
-              <span>📖</span>
+              ${BBE_ICONS.book(14)}
               <span>Read Full Chapter (${bbeEscapeHtml(bookTitle)} ${p.chapter})</span>
             </a>
           `;
@@ -961,7 +1275,7 @@
     }
 
     // Populate or filter the .cat7xG_chapter DOM if needed
-    const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const chapterEl = getChapterEl();
     if (chapterEl) {
       const targetPassageKey = `${p.id}|${p.book}.${p.chapter}|${p.verses || "FULL"}`;
       const needsFetch = (!nativeReader || p.verses || chapterEl.dataset.bbeFiltered === "1") &&
@@ -1019,6 +1333,7 @@
             if (S.wordStudyMode) enhanceVersesForWordStudy(curP);
             if (S.compareOn) renderCompare(curP);
             syncDomClasses();
+            if (window.BBE_SERMON && window.BBE_SERMON.isActive()) window.BBE_SERMON.onPassageOrLayoutChange();
           })
           .catch(() => {
             delete chapterEl.dataset.bbeLoadingKey;
@@ -1059,7 +1374,7 @@
 
     const allVers = getAllVersions();
     const curKey = bbeKeyForId(p.id, allVers) || p.abbr;
-    const curChapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const curChapterEl = getChapterEl();
     if (curChapterEl && curKey && !p.verses && !curChapterEl.dataset.bbeFiltered) {
       const curCacheKey = `${p.id}|${chapKey}`;
       if (!chapterCache.has(curCacheKey)) {
@@ -1138,9 +1453,12 @@
         });
       }
 
-      // Fetch the top 2 immediately
+      // Fetch the top 2 immediately (chapter HTML + cloud highlights)
       priorityList.forEach(key => {
         fetchChapter(key, p).catch(() => {});
+        if (allVers[key]?.id) {
+          fetchCloudHighlightsForChapter(chapKey, allVers[key].id, false, { isPrefetch: true });
+        }
       });
 
       // Queue the remaining versions with a 200ms gap to eliminate bandwidth spikes
@@ -1150,6 +1468,9 @@
           const checkP = bbeParsePath(location.pathname, allVers);
           if (checkP && `${checkP.book}.${checkP.chapter}` === chapKey) {
             fetchChapter(key, p).catch(() => {});
+            if (allVers[key]?.id) {
+              fetchCloudHighlightsForChapter(chapKey, allVers[key].id, false, { isPrefetch: true });
+            }
           }
         }, 200 * (index + 1));
         preloadQueueTimeouts.push(timeout);
@@ -1233,18 +1554,18 @@
       set.add(targetKey);
       const ordered = [targetKey, ...Array.from(set).filter(k => k !== targetKey)];
       await bbeSave({ compareVersions: ordered });
-      showToast(`⚡ Compare: Added ${targetKey}`);
+      showToast(`Compare: Added ${targetKey}`, { icon: "zap" });
       return;
     }
 
-    const curChapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const curChapterEl = getChapterEl();
     if (!curChapterEl) {
       location.href = bbeBuildPath(v.id, targetKey, p);
       return;
     }
 
-    const toastLabel = v.name ? `⚡ Swapped to ${targetKey} · ${v.name}` : `⚡ Swapped to ${targetKey}`;
-    showToast(toastLabel);
+    const toastLabel = v.name ? `Swapped to ${targetKey} · ${v.name}` : `Swapped to ${targetKey}`;
+    showToast(toastLabel, { icon: "zap" });
 
     // Update active button UI immediately for instant feedback
     document.querySelectorAll("#bbe-bar .bbe-version-btn").forEach(btn => {
@@ -1260,6 +1581,7 @@
         else if (res.clampedVerses) p.verses = res.clampedVerses;
       }
       await applyChapterTransition(curChapterEl, newHtml, activeVerse);
+      fetchCloudHighlightsForChapter(`${p.book}.${p.chapter}`, v.id, true);
 
       p.id = v.id;
       p.abbr = targetKey;
@@ -1378,8 +1700,8 @@
     preloadAdjacentTimer = setTimeout(() => {
       preloadAdjacentTimer = null;
       const { prevUrl, nextUrl } = getNativeChapterUrls();
-      if (nextUrl) fetchAdjacentChapter(nextUrl);
-      if (prevUrl) fetchAdjacentChapter(prevUrl);
+      if (nextUrl) fetchAdjacentChapter(nextUrl)?.catch(() => {});
+      if (prevUrl) fetchAdjacentChapter(prevUrl)?.catch(() => {});
     }, 3500);
   }
 
@@ -1426,11 +1748,11 @@
     const activeBtn = triggerEl || (direction === "next" ? nextEl : prevEl);
 
     if (!targetUrl) {
-      showToast(direction === "next" ? "📖 Reached the end of the Bible" : "📖 Reached the beginning of the Bible");
+      showToast(direction === "next" ? "Reached the end of the Bible" : "Reached the beginning of the Bible", { icon: "book" });
       return;
     }
 
-    const curChapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const curChapterEl = getChapterEl();
     if (!curChapterEl) {
       location.href = targetUrl;
       return;
@@ -1464,6 +1786,7 @@
         curChapterEl.dataset.bbePassageKey = `${nextP.id}|${nextP.book}.${nextP.chapter}|${nextP.verses || "FULL"}`;
         curChapterEl.dataset.bbeFiltered = nextP.verses ? "1" : "";
         curChapterEl.setAttribute("data-usfm", `${nextP.book}.${nextP.chapter}`);
+        fetchCloudHighlightsForChapter(`${nextP.book}.${nextP.chapter}`, nextP.id, true);
       }
 
       // Update native floating buttons' hrefs (including clearing boundary hrefs) before pushState triggers tick()
@@ -1529,15 +1852,301 @@
   let chipsScrollLeft = 0;
   let chipsDidDrag = false;
 
-  // Bottom-docked drawer vertical resize state
+  // Bottom-docked drawer vertical resize & scroll clearance state
   let isResizingDrawer = false;
   let drawerResizeStartY = 0;
   let drawerResizeStartH = 0;
+  const DRAWER_CLEARANCE_BREATHING_PX = 140;
+  const DRAWER_GLIDE_SAFE_GAP_PX = 104;
+  let currentDrawerClearancePx = 0;
+  let residualClearanceActive = false;
+  let drawerScrollAnimRaf = null;
 
   function clampBottomDrawerHeight(px) {
     const minH = 160;
     const maxH = Math.max(minH, Math.floor(window.innerHeight * 0.88));
     return Math.min(maxH, Math.max(minH, Math.round(px)));
+  }
+
+  function isBottomDrawerActive() {
+    return Boolean(S.enabled && isDrawerOpen && !isDrawerFullscreen && (S.commentaryDock || "bottom") === "bottom");
+  }
+
+  function getBottomDrawerHeightPx() {
+    const fallback = (Number(S.commentaryBottomHeight) >= 160)
+      ? clampBottomDrawerHeight(Number(S.commentaryBottomHeight))
+      : clampBottomDrawerHeight(Math.round((window.innerHeight || 800) * 0.44));
+    const drawer = document.getElementById("bbe-drawer");
+    if (drawer && drawer.classList.contains("bbe-dock-bottom") && !isDrawerFullscreen) {
+      const measured = Math.round(drawer.getBoundingClientRect().height);
+      if (measured >= 160) return Math.max(fallback, measured);
+    }
+    return fallback;
+  }
+
+  function getRequiredBottomClearancePx(overrideDrawerH) {
+    const drawerH = (typeof overrideDrawerH === "number" && overrideDrawerH > 0)
+      ? overrideDrawerH
+      : getBottomDrawerHeightPx();
+    const baseClearance = drawerH + DRAWER_CLEARANCE_BREATHING_PX;
+    const docEl = document.scrollingElement || document.documentElement;
+    const viewportH = window.innerHeight || docEl.clientHeight || 800;
+    const naturalScrollHeight = Math.max(viewportH, docEl.scrollHeight - currentDrawerClearancePx);
+    const scriptRect = getActiveScriptureBounds();
+    if (scriptRect && scriptRect.height > 0) {
+      const textBottomInDoc = Math.round(window.scrollY + scriptRect.bottom);
+      const neededForText = (textBottomInDoc + drawerH + DRAWER_CLEARANCE_BREATHING_PX) - naturalScrollHeight;
+      return Math.max(baseClearance, neededForText);
+    }
+    return baseClearance;
+  }
+
+  function setDrawerClearancePx(px) {
+    const next = Math.max(0, Math.round(px || 0));
+    currentDrawerClearancePx = next;
+    if (next > 0) {
+      html.style.setProperty("--bbe-drawer-clearance", `${next}px`);
+      if (document.body) document.body.style.setProperty("padding-bottom", `${next}px`, "important");
+    } else {
+      html.style.removeProperty("--bbe-drawer-clearance");
+      if (document.body) document.body.style.removeProperty("padding-bottom");
+    }
+  }
+
+  function cancelDrawerScrollAnim() {
+    if (drawerScrollAnimRaf) {
+      cancelAnimationFrame(drawerScrollAnimRaf);
+      drawerScrollAnimRaf = null;
+    }
+  }
+
+  // Exact evaluator for CSS cubic-bezier(0.16, 1, 0.3, 1) matching #bbe-drawer slide transition
+  function easeDrawerBezier(t) {
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    const x1 = 0.16, y1 = 1.0, x2 = 0.3, y2 = 1.0;
+    const cx = 3 * x1;
+    const bx = 3 * (x2 - x1) - cx;
+    const ax = 1 - cx - bx;
+    const cy = 3 * y1;
+    const by = 3 * (y2 - y1) - cy;
+    const ay = 1 - cy - by;
+    const sampleX = (u) => ((ax * u + bx) * u + cx) * u;
+    const sampleDerivX = (u) => (3 * ax * u + 2 * bx) * u + cx;
+    const sampleY = (u) => ((ay * u + by) * u + cy) * u;
+    let u = t;
+    for (let i = 0; i < 6; i++) {
+      const err = sampleX(u) - t;
+      if (Math.abs(err) < 1e-5) break;
+      const d = sampleDerivX(u);
+      if (Math.abs(d) < 1e-5) break;
+      u -= err / d;
+    }
+    u = Math.max(0, Math.min(1, u));
+    return sampleY(u);
+  }
+
+  function animateDrawerScrollBy(deltaY, durationMs = 280) {
+    cancelDrawerScrollAnim();
+    const delta = Math.round(deltaY);
+    if (Math.abs(delta) < 2) return;
+    const startY = window.scrollY;
+    const startTime = performance.now();
+    const step = (now) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / durationMs);
+      const eased = easeDrawerBezier(progress);
+      window.scrollTo(0, Math.round(startY + delta * eased));
+      if (progress < 1) {
+        drawerScrollAnimRaf = requestAnimationFrame(step);
+      } else {
+        drawerScrollAnimRaf = null;
+      }
+    };
+    drawerScrollAnimRaf = requestAnimationFrame(step);
+  }
+
+  function getPreClearanceNaturalMaxScrollY() {
+    const docEl = document.scrollingElement || document.documentElement;
+    const viewportH = window.innerHeight || docEl.clientHeight || 800;
+    const naturalScrollHeight = Math.max(viewportH, docEl.scrollHeight - currentDrawerClearancePx);
+    return Math.max(0, naturalScrollHeight - viewportH);
+  }
+
+  // Option B on close: keep only the exact excess scroll offset so visible text doesn't move 1px on close,
+  // and silently collapse the leftover space as the user scrolls back up.
+  function releaseDrawerBottomClearanceHoldPosition() {
+    cancelDrawerScrollAnim();
+    if (!S.enabled || currentDrawerClearancePx <= 0) {
+      residualClearanceActive = false;
+      setDrawerClearancePx(0);
+      return;
+    }
+    const naturalMaxScrollY = getPreClearanceNaturalMaxScrollY();
+    const excessScroll = Math.round(window.scrollY - naturalMaxScrollY);
+    if (excessScroll > 0) {
+      residualClearanceActive = true;
+      setDrawerClearancePx(Math.min(currentDrawerClearancePx, excessScroll));
+    } else {
+      residualClearanceActive = false;
+      setDrawerClearancePx(0);
+    }
+  }
+
+  function syncDrawerBottomClearance() {
+    if (isBottomDrawerActive()) {
+      residualClearanceActive = false;
+      setDrawerClearancePx(getRequiredBottomClearancePx());
+    } else {
+      releaseDrawerBottomClearanceHoldPosition();
+    }
+  }
+
+  window.addEventListener("scroll", () => {
+    if (!residualClearanceActive) return;
+    if (isBottomDrawerActive() || !S.enabled || currentDrawerClearancePx <= 0) {
+      if (!isBottomDrawerActive()) {
+        residualClearanceActive = false;
+        setDrawerClearancePx(0);
+      }
+      return;
+    }
+    const naturalMaxScrollY = getPreClearanceNaturalMaxScrollY();
+    const needed = Math.max(0, Math.round(window.scrollY - naturalMaxScrollY));
+    if (needed <= 0) {
+      residualClearanceActive = false;
+      setDrawerClearancePx(0);
+    } else if (needed < currentDrawerClearancePx) {
+      setDrawerClearancePx(needed);
+    }
+  }, { passive: true });
+
+  window.addEventListener("wheel", () => {
+    if (drawerScrollAnimRaf) cancelDrawerScrollAnim();
+  }, { passive: true });
+  window.addEventListener("touchmove", () => {
+    if (drawerScrollAnimRaf) cancelDrawerScrollAnim();
+  }, { passive: true });
+  window.addEventListener("resize", () => {
+    if (isBottomDrawerActive()) {
+      setDrawerClearancePx(getRequiredBottomClearancePx());
+    }
+  }, { passive: true });
+
+  function getTopSafeZone() {
+    const bar = document.getElementById("bbe-bar");
+    if (bar && S.toolbarBehavior !== "static" && !bar.classList.contains("bbe-hidden")) {
+      const r = bar.getBoundingClientRect();
+      if (r.height > 0 && r.bottom > 0 && r.bottom < 220) {
+        return Math.max(24, Math.round(r.bottom + 14));
+      }
+    }
+    return 24;
+  }
+
+  function getActiveScriptureBounds() {
+    if (S.compareOn) {
+      const cmp = document.getElementById("bbe-compare-grid");
+      if (cmp) return cmp.getBoundingClientRect();
+    }
+    if (html.classList.contains("bbe-verse-view")) {
+      const vpChap = document.querySelector('#bbe-verse-page-reader [class*="_chapter"]') || document.getElementById("bbe-verse-page-reader");
+      if (vpChap) return vpChap.getBoundingClientRect();
+    }
+    const chap = getChapterEl();
+    return chap ? chap.getBoundingClientRect() : null;
+  }
+
+  function getVerseBoundsInActiveView(bookCode, chapter, vNum) {
+    const num = Number(vNum) || 1;
+    if (S.compareOn) {
+      const interRow = document.getElementById(`bbe-interleaved-v-${num}`);
+      if (interRow) return interRow.getBoundingClientRect();
+      const cmpCols = document.querySelectorAll(`#bbe-compare-grid .bbe-compare-col [class*="_verse"][data-usfm$=".${num}"]`);
+      if (cmpCols.length > 0) {
+        let top = Infinity, bottom = -Infinity;
+        cmpCols.forEach(el => {
+          const r = el.getBoundingClientRect();
+          if (r.width > 0 || r.height > 0) {
+            if (r.top < top) top = r.top;
+            if (r.bottom > bottom) bottom = r.bottom;
+          }
+        });
+        if (top < Infinity) return { top, bottom, height: bottom - top };
+      }
+    }
+    const root = html.classList.contains("bbe-verse-view")
+      ? (document.querySelector('#bbe-verse-page-reader [class*="_chapter"]') || getChapterEl())
+      : getChapterEl();
+    if (!root) return null;
+    const prefix = `${bookCode}.${chapter}.`;
+    const matches = [];
+    root.querySelectorAll('[class*="_verse"][data-usfm]').forEach(vEl => {
+      const usfm = vEl.getAttribute("data-usfm") || "";
+      if (usfm === `${prefix}${num}` || extractUsfmVerseNums(usfm).includes(num)) {
+        const r = vEl.getBoundingClientRect();
+        if (r.width > 0 || r.height > 0) matches.push(r);
+      }
+    });
+    if (matches.length === 0) return null;
+    let top = Infinity, bottom = -Infinity;
+    for (const r of matches) {
+      if (r.top < top) top = r.top;
+      if (r.bottom > bottom) bottom = r.bottom;
+    }
+    return top < Infinity ? { top, bottom, height: bottom - top } : null;
+  }
+
+  function glideScriptureAboveBottomDrawer(bookCode, chapter, vNum, opts = {}) {
+    if (!isBottomDrawerActive()) return;
+    const viewportH = window.innerHeight || document.documentElement.clientHeight || 800;
+    const drawerH = getBottomDrawerHeightPx();
+    const drawerTop = viewportH - drawerH;
+    const safeBottom = drawerTop - DRAWER_GLIDE_SAFE_GAP_PX;
+    const topSafe = getTopSafeZone();
+    const chapterRect = getActiveScriptureBounds();
+    const verseRect = getVerseBoundsInActiveView(bookCode, chapter, vNum);
+
+    const chapterNearBottom = Boolean(
+      opts.wasAtBottomOfPage ||
+      (chapterRect && window.scrollY > 10 && chapterRect.bottom <= viewportH + 56)
+    );
+
+    // 1. User is already at the bottom of the chapter and the final lines are behind the drawer
+    if (chapterNearBottom && chapterRect && chapterRect.bottom > safeBottom) {
+      let delta = chapterRect.bottom - safeBottom;
+      if (opts.explicitVerse && verseRect && verseRect.bottom > safeBottom) {
+        delta = Math.max(delta, verseRect.bottom - safeBottom);
+      }
+      if (opts.explicitVerse && verseRect && (verseRect.top - delta < topSafe)) {
+        delta = Math.max(0, verseRect.top - topSafe);
+      }
+      if (delta > 2) {
+        animateDrawerScrollBy(delta, 280);
+      }
+      return;
+    }
+
+    // 2. User explicitly clicked/stepped to a verse that is covered by the bottom drawer
+    if (opts.explicitVerse && verseRect) {
+      if (verseRect.bottom > safeBottom) {
+        let delta = verseRect.bottom - safeBottom;
+        if (chapterRect && Math.abs(chapterRect.bottom - verseRect.bottom) < 72) {
+          delta = Math.max(delta, chapterRect.bottom - safeBottom);
+        }
+        if (verseRect.top - delta < topSafe) {
+          delta = Math.max(0, verseRect.top - topSafe);
+        }
+        if (delta > 2) {
+          animateDrawerScrollBy(delta, 280);
+        }
+      } else if (opts.isStepper && verseRect.top < topSafe) {
+        const delta = verseRect.top - topSafe - 12;
+        if (delta < -2) {
+          animateDrawerScrollBy(delta, 280);
+        }
+      }
+    }
   }
 
   function applyDrawerDockClasses(drawer) {
@@ -1557,16 +2166,18 @@
       drawer.style.removeProperty("--bbe-bottom-height");
     }
 
+    syncDrawerBottomClearance();
+
     const dockIcon = drawer.querySelector("#bbe-drawer-dock-icon");
     const dockLabel = drawer.querySelector("#bbe-drawer-dock-label");
     const dockBtn = drawer.querySelector("#bbe-drawer-dock-btn");
     if (dockIcon && dockLabel) {
       if (dock === "bottom") {
-        dockIcon.textContent = "⬒";
+        dockIcon.innerHTML = BBE_ICONS.dockRight(13);
         dockLabel.textContent = "Sidebar";
         if (dockBtn) dockBtn.title = "Dock as Right Sidebar";
       } else {
-        dockIcon.textContent = "⬓";
+        dockIcon.innerHTML = BBE_ICONS.dockBottom(13);
         dockLabel.textContent = "Bottom";
         if (dockBtn) dockBtn.title = "Dock at Bottom (Logos Bible style)";
       }
@@ -1577,11 +2188,11 @@
     const fsBtn = drawer.querySelector("#bbe-drawer-fs-btn");
     if (fsIcon && fsLabel) {
       if (isDrawerFullscreen) {
-        fsIcon.textContent = "⤡";
+        fsIcon.innerHTML = BBE_ICONS.minimize(13);
         fsLabel.textContent = "Exit";
         if (fsBtn) fsBtn.title = "Exit Fullscreen (Esc)";
       } else {
-        fsIcon.textContent = "⤢";
+        fsIcon.innerHTML = BBE_ICONS.expand(13);
         fsLabel.textContent = "Fullscreen";
         if (fsBtn) fsBtn.title = "Toggle Fullscreen View";
       }
@@ -1601,6 +2212,7 @@
     if (!drawer) {
       drawer = document.createElement("div");
       drawer.id = "bbe-drawer";
+      drawer.lang = "en";
       drawer.innerHTML = `
         <div class="bbe-drawer-resizer" id="bbe-drawer-resizer" title="Drag up or down to resize (double-click to reset)">
           <span class="bbe-drawer-resizer-pill"></span>
@@ -1617,15 +2229,15 @@
           </div>
           <div class="bbe-drawer-actions">
             <button type="button" class="bbe-drawer-tool-btn" id="bbe-drawer-copy-btn" title="Copy active verse text">
-              <span>📋</span>
+              ${BBE_ICONS.copy(13)}
               <span id="bbe-drawer-copy-label">Copy</span>
             </button>
             <button type="button" class="bbe-drawer-tool-btn" id="bbe-drawer-dock-btn" title="Dock at Bottom (Logos Bible style)">
-              <span id="bbe-drawer-dock-icon">⬓</span>
+              <span id="bbe-drawer-dock-icon" style="display:inline-flex;align-items:center;">${BBE_ICONS.dockBottom(13)}</span>
               <span id="bbe-drawer-dock-label">Bottom</span>
             </button>
             <button type="button" class="bbe-drawer-tool-btn" id="bbe-drawer-fs-btn" title="Toggle Fullscreen">
-              <span id="bbe-drawer-fs-icon">⤢</span>
+              <span id="bbe-drawer-fs-icon" style="display:inline-flex;align-items:center;">${BBE_ICONS.expand(13)}</span>
               <span id="bbe-drawer-fs-label">Fullscreen</span>
             </button>
             <a href="#" target="_blank" rel="noopener" class="bbe-drawer-link" id="bbe-drawer-hublink">BibleHub ↗</a>
@@ -1633,9 +2245,9 @@
           </div>
         </div>
         <div class="bbe-drawer-tabs">
-          <button type="button" class="bbe-drawer-tab" id="bbe-tab-commentary">📖 Commentary</button>
-          <button type="button" class="bbe-drawer-tab" id="bbe-tab-crossref">🔗 Cross-References (TSK)</button>
-          <button type="button" class="bbe-drawer-tab" id="bbe-tab-wordstudy">🔤 Word Study</button>
+          <button type="button" class="bbe-drawer-tab" id="bbe-tab-commentary">${BBE_ICONS.book(13)}<span>Commentary</span></button>
+          <button type="button" class="bbe-drawer-tab" id="bbe-tab-crossref">${BBE_ICONS.link(13)}<span>Cross-References (TSK)</span></button>
+          <button type="button" class="bbe-drawer-tab" id="bbe-tab-wordstudy">${BBE_ICONS.lexicon(13)}<span>Word Study</span></button>
         </div>
         <div class="bbe-drawer-verse-preview" id="bbe-drawer-preview"></div>
         <div class="bbe-drawer-chips" id="bbe-drawer-chips"></div>
@@ -1665,8 +2277,9 @@
           if (!drawer.classList.contains("bbe-dock-bottom") || isDrawerFullscreen) return;
           S.commentaryBottomHeight = null;
           drawer.style.removeProperty("--bbe-bottom-height");
+          syncDrawerBottomClearance();
           await bbeSave({ commentaryBottomHeight: null });
-          showToast("↺ Reset study panel height");
+          showToast("Reset study panel height", { icon: "reset" });
         });
       }
 
@@ -1674,6 +2287,21 @@
         if (!isResizingDrawer) return;
         const nextH = clampBottomDrawerHeight(drawerResizeStartH + (drawerResizeStartY - e.clientY));
         drawer.style.setProperty("--bbe-bottom-height", `${nextH}px`);
+        if (isBottomDrawerActive()) {
+          const prevClearance = currentDrawerClearancePx;
+          const nextClearance = getRequiredBottomClearancePx(nextH);
+          setDrawerClearancePx(nextClearance);
+          // If the user is at the bottom of the chapter and drags the drawer taller over the final lines,
+          // keep the final lines riding cleanly above the top edge of the drawer.
+          if (nextClearance > prevClearance) {
+            const chapterRect = getActiveScriptureBounds();
+            const viewportH = window.innerHeight || document.documentElement.clientHeight || 800;
+            const safeBottom = viewportH - nextH - 80;
+            if (chapterRect && window.scrollY > 10 && chapterRect.bottom > safeBottom && chapterRect.bottom <= viewportH + 40) {
+              window.scrollBy(0, Math.min(nextClearance - prevClearance, Math.round(chapterRect.bottom - safeBottom)));
+            }
+          }
+        }
       });
 
       const finishDrawerResize = async () => {
@@ -1711,24 +2339,40 @@
       drawer.querySelector("#bbe-drawer-dock-btn").addEventListener("click", async () => {
         const currentDock = S.commentaryDock || "bottom";
         const newDock = (currentDock === "bottom") ? "right" : "bottom";
+        const naturalMaxScrollY = getPreClearanceNaturalMaxScrollY();
+        const wasAtBottomOfPage = (naturalMaxScrollY > 0 && window.scrollY >= naturalMaxScrollY - 48);
         S.commentaryDock = newDock;
         applyDrawerDockClasses(drawer);
+        if (newDock === "bottom" && !isDrawerFullscreen) {
+          glideScriptureAboveBottomDrawer(currentDrawerPassage.book, currentDrawerPassage.chapter, currentDrawerPassage.verse, {
+            wasAtBottomOfPage,
+            explicitVerse: false
+          });
+        }
         await bbeSave({ commentaryDock: newDock });
       });
 
       drawer.querySelector("#bbe-drawer-fs-btn").addEventListener("click", () => {
+        const naturalMaxScrollY = getPreClearanceNaturalMaxScrollY();
+        const wasAtBottomOfPage = (naturalMaxScrollY > 0 && window.scrollY >= naturalMaxScrollY - 48);
         isDrawerFullscreen = !isDrawerFullscreen;
         applyDrawerDockClasses(drawer);
+        if (!isDrawerFullscreen && (S.commentaryDock || "bottom") === "bottom") {
+          glideScriptureAboveBottomDrawer(currentDrawerPassage.book, currentDrawerPassage.chapter, currentDrawerPassage.verse, {
+            wasAtBottomOfPage,
+            explicitVerse: false
+          });
+        }
       });
 
       drawer.querySelector("#bbe-drawer-close").addEventListener("click", () => closeCommentaryDrawer());
       drawer.querySelector("#bbe-stepper-prev").addEventListener("click", () => {
         const v = Math.max(1, (currentDrawerPassage.verse || 1) - 1);
-        openCommentaryDrawer(currentDrawerPassage.book, currentDrawerPassage.chapter, v);
+        openCommentaryDrawer(currentDrawerPassage.book, currentDrawerPassage.chapter, v, null, null, { explicitVerse: true, isStepper: true });
       });
       drawer.querySelector("#bbe-stepper-next").addEventListener("click", () => {
         const v = (currentDrawerPassage.verse || 1) + 1;
-        openCommentaryDrawer(currentDrawerPassage.book, currentDrawerPassage.chapter, v);
+        openCommentaryDrawer(currentDrawerPassage.book, currentDrawerPassage.chapter, v, null, null, { explicitVerse: true, isStepper: true });
       });
 
       // Grabable & Slideable chips with mouse drag + mousewheel
@@ -1774,6 +2418,7 @@
   function closeCommentaryDrawer() {
     isDrawerOpen = false;
     isDrawerFullscreen = false;
+    releaseDrawerBottomClearanceHoldPosition();
     const drawer = document.getElementById("bbe-drawer");
     if (drawer) {
       drawer.classList.remove("open");
@@ -1785,7 +2430,7 @@
   }
 
   function getVerseTextFromDom(verseNum) {
-    const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const chapterEl = getChapterEl();
     if (!chapterEl) return "";
 
     const cleanVerseClone = (clone) => {
@@ -1874,14 +2519,14 @@
     if (!p) return;
     const text = getVerseTextFromDom(verseNum);
     if (!text) {
-      showToast(`⚠️ Could not read verse ${verseNum}`);
+      showToast(`Could not read verse ${verseNum}`, { icon: "warn" });
       return;
     }
     const formatted = formatVerseCopy(text, p.book, p.chapter, verseNum, verseNum, p.versionName || p.abbr);
     const success = await copyTextToClipboard(formatted);
     if (success) {
       const bookName = BBE_BOOK_NAMES[p.book] || p.book;
-      showToast(`📋 Copied ${bookName} ${p.chapter}:${verseNum}`);
+      showToast(`Copied ${bookName} ${p.chapter}:${verseNum}`, { icon: "copy" });
 
       if (buttonEl) {
         buttonEl.classList.add("bbe-copied");
@@ -1893,7 +2538,7 @@
         }, 1200);
       }
     } else {
-      showToast("⚠️ Could not copy to clipboard");
+      showToast("Could not copy to clipboard", { icon: "warn" });
     }
   }
 
@@ -1941,7 +2586,7 @@
 
     tempHlBannerEl.innerHTML = `
       <div class="bbe-temp-hl-content">
-        <span class="bbe-temp-hl-icon">⚠️</span>
+        <span class="bbe-temp-hl-icon" style="display:inline-flex;align-items:center;">${BBE_ICONS.warn(18)}</span>
         <div class="bbe-temp-hl-text">
           <strong class="bbe-temp-hl-title">Temporary Highlight (${bbeEscapeHtml(refLabel || 'Scripture')})</strong>
           <span class="bbe-temp-hl-desc">You are not logged in. This highlight is temporary and will disappear when the page is reloaded.</span>
@@ -1979,7 +2624,7 @@
       <div class="bbe-signin-modal-backdrop"></div>
       <div class="bbe-signin-modal-card">
         <div class="bbe-signin-modal-header">
-          <div class="bbe-signin-modal-badge">🔒 Sign-in Required</div>
+          <div class="bbe-signin-modal-badge" style="display:inline-flex;align-items:center;gap:5px;">${BBE_ICONS.lock(13)}<span>Sign-in Required</span></div>
           <button type="button" class="bbe-signin-modal-close" aria-label="Close">✕</button>
         </div>
         <div class="bbe-signin-modal-body">
@@ -2026,13 +2671,146 @@
     window.dispatchEvent(new CustomEvent("BBE_CMD_GET_AUTH"));
   }, 400);
 
-  async function applyNativeHighlight(usfmArray, colorHex) {
+  // ---- Direct Bible.com Cloud Highlight Sync & Per-Version Painting ----
+  const BBE_HL_BG = { fffe00: "#fdefc5", fef100: "#fdefc5", "5dff79": "#d9e9ce", "00d6ff": "#baddff", ffc66f: "#fcd7b6", ff95ef: "#f5c8d6" };
+  let currentChapterHighlights = [];
+
+  window.addEventListener("BBE_HIGHLIGHTS_SYNC", (e) => {
+    const list = e.detail?.highlights;
+    if (Array.isArray(list)) {
+      currentChapterHighlights = list;
+    }
+  });
+
+  function bbePaintHighlightsInScope(scopeEl, highlights) {
+    if (!scopeEl) return;
+    // Clear existing painted highlights in scope
+    scopeEl.querySelectorAll("[data-bbe-temp-hl], [data-usfm][style], [data-usfm] [style]").forEach((el) => {
+      if (el.hasAttribute("data-bbe-temp-hl") || (el.getAttribute("style") || "").includes("background-color")) {
+        el.style.backgroundColor = "";
+        el.removeAttribute("data-bbe-temp-hl");
+      }
+    });
+    if (!Array.isArray(highlights) || !highlights.length) return;
+    const byNum = {};
+    highlights.forEach((h) => {
+      if (!h || !h.usfm || !h.color) return;
+      const cid = h.color === "fef100" ? "fffe00" : h.color;
+      if (!BBE_HL_BG[cid]) return;
+      extractUsfmVerseNums(h.usfm).forEach((n) => { byNum[n] = cid; });
+    });
+    scopeEl.querySelectorAll("[data-usfm]").forEach((vEl) => {
+      const val = vEl.getAttribute("data-usfm") || "";
+      if (val.split(".").length < 3) return;
+      const nums = extractUsfmVerseNums(val);
+      const id = nums.map((n) => byNum[n]).find(Boolean);
+      if (!id) return;
+      let contentEls = Array.from(vEl.querySelectorAll('.content, [class*="_content"]'));
+      contentEls = contentEls.filter((c) => !contentEls.some((o) => o !== c && o.contains(c)));
+      (contentEls.length ? contentEls : [vEl]).forEach((t) => {
+        t.style.backgroundColor = BBE_HL_BG[id];
+        t.setAttribute("data-bbe-temp-hl", id);
+      });
+    });
+  }
+
+  function fetchCloudHighlightsForChapter(chapterUsfm, versionId, applyToMainDom = false, opts = {}) {
+    return new Promise((resolve) => {
+      const reqId = "hl_fetch_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+      let resolved = false;
+      const onDone = (e) => {
+        if (resolved || e.detail?.reqId !== reqId) return;
+        resolved = true;
+        window.removeEventListener("BBE_CMD_FETCH_HIGHLIGHTS_DONE", onDone);
+        resolve(e.detail?.highlights || []);
+      };
+      window.addEventListener("BBE_CMD_FETCH_HIGHLIGHTS_DONE", onDone);
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          window.removeEventListener("BBE_CMD_FETCH_HIGHLIGHTS_DONE", onDone);
+          resolve([]);
+        }
+      }, 4500);
+      window.dispatchEvent(new CustomEvent("BBE_CMD_FETCH_HIGHLIGHTS", {
+        detail: { reqId, chapterUsfm, versionId, applyToMainDom, isPrefetch: !!opts.isPrefetch }
+      }));
+    });
+  }
+
+  function batchSaveCloudHighlights(items, versionIds) {
+    return new Promise((resolve) => {
+      const reqId = "hl_batch_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+      let resolved = false;
+      const onDone = (e) => {
+        if (resolved || e.detail?.reqId !== reqId) return;
+        resolved = true;
+        window.removeEventListener("BBE_CMD_BATCH_HIGHLIGHT_DONE", onDone);
+        resolve(e.detail || { success: true });
+      };
+      window.addEventListener("BBE_CMD_BATCH_HIGHLIGHT_DONE", onDone);
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          window.removeEventListener("BBE_CMD_BATCH_HIGHLIGHT_DONE", onDone);
+          resolve({ success: false, error: "Timed out syncing to Bible.com" });
+        }
+      }, 6000);
+      window.dispatchEvent(new CustomEvent("BBE_CMD_BATCH_HIGHLIGHT", {
+        detail: { reqId, items, versionIds }
+      }));
+    });
+  }
+
+  // Reflect a highlight change in every compare column immediately
+  function bbeSyncCompareHighlights(usfms, colorId) {
+    const cols = document.querySelectorAll("#bbe-compare-grid .bbe-compare-col .bbe-compare-body");
+    if (!cols.length) return;
+    const nums = new Set((usfms || []).map((u) => parseInt(u.split(".").pop(), 10)));
+    const cid = colorId === "fef100" ? "fffe00" : colorId;
+    cols.forEach((col) => {
+      col.querySelectorAll("[data-usfm]").forEach((vEl) => {
+        const val = vEl.getAttribute("data-usfm") || "";
+        if (val.split(".").length < 3) return;
+        if (!extractUsfmVerseNums(val).some((n) => nums.has(n))) return;
+        let contentEls = Array.from(vEl.querySelectorAll('.content, [class*="_content"]'));
+        contentEls = contentEls.filter((c) => !contentEls.some((o) => o !== c && o.contains(c)));
+        const targets = [vEl, ...(contentEls.length ? contentEls : [])];
+        targets.forEach((t) => {
+          if (cid && BBE_HL_BG[cid] && (t !== vEl || !contentEls.length)) {
+            t.style.backgroundColor = BBE_HL_BG[cid];
+            t.setAttribute("data-bbe-temp-hl", cid);
+          } else if (!cid) {
+            t.style.backgroundColor = "";
+            t.removeAttribute("data-bbe-temp-hl");
+          }
+        });
+      });
+    });
+  }
+
+  function getActiveTargetVersionIds() {
+    const allVers = getAllVersions();
+    const p = bbeParsePath(location.pathname, allVers);
+    if (S.compareOn) {
+      const cmpVers = (S.compareVersions || ["NIV", "ESV"]).filter(k => allVers[k]);
+      const ids = cmpVers.map(k => allVers[k]?.id).filter(Boolean);
+      if (ids.length) return Array.from(new Set(ids));
+    }
+    return [p?.id || 59];
+  }
+
+  async function applyNativeHighlight(usfmArray, colorHex, explicitVersionIds = null) {
     if (!usfmArray || !usfmArray.length) return false;
     const cleanHex = colorHex ? colorHex.replace("#", "").toLowerCase() : null;
+    const versionIds = Array.isArray(explicitVersionIds) && explicitVersionIds.length
+      ? explicitVersionIds
+      : getActiveTargetVersionIds();
+    const reqId = "hl_cmd_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     return new Promise((resolve) => {
       let resolved = false;
       const onDone = (e) => {
-        if (resolved) return;
+        if (resolved || (e.detail?.reqId && e.detail.reqId !== reqId)) return;
         resolved = true;
         window.removeEventListener("BBE_CMD_HIGHLIGHT_DONE", onDone);
         resolve(e?.detail || { success: true });
@@ -2044,10 +2822,10 @@
           window.removeEventListener("BBE_CMD_HIGHLIGHT_DONE", onDone);
           resolve({ success: true, timedOut: true });
         }
-      }, 1800);
+      }, 4000);
 
       window.dispatchEvent(new CustomEvent("BBE_CMD_HIGHLIGHT", {
-        detail: { usfms: usfmArray, color: cleanHex }
+        detail: { reqId, usfms: usfmArray, color: cleanHex, versionIds }
       }));
     });
   }
@@ -2089,7 +2867,7 @@
       <div class="bbe-note-modal-card" role="dialog" aria-modal="true" aria-labelledby="bbe-note-modal-title">
         <div class="bbe-note-modal-header">
           <div class="bbe-note-modal-title-wrap">
-            <span class="bbe-note-modal-icon">📝</span>
+            <span class="bbe-note-modal-icon" style="display:inline-flex;align-items:center;justify-content:center;">${BBE_ICONS.note(18)}</span>
             <div>
               <h3 id="bbe-note-modal-title" class="bbe-note-modal-title">YouVersion Cloud Note</h3>
               <p class="bbe-note-modal-sub">
@@ -2110,7 +2888,7 @@
         <div class="bbe-note-modal-footer">
           <button type="button" class="bbe-note-btn bbe-note-btn-cancel">Cancel</button>
           <button type="button" class="bbe-note-btn bbe-note-btn-save">
-            <span class="bbe-note-save-icon">☁️</span>
+            <span class="bbe-note-save-icon" style="display:inline-flex;align-items:center;">${BBE_ICONS.cloud(14)}</span>
             <span class="bbe-note-save-text">Save to YouVersion</span>
           </button>
         </div>
@@ -2168,31 +2946,31 @@
     const activeSaveText = newSaveBtn.querySelector(".bbe-note-save-text");
     const activeSaveIcon = newSaveBtn.querySelector(".bbe-note-save-icon");
     activeSaveText.textContent = "Save to YouVersion";
-    activeSaveIcon.textContent = "☁️";
+    activeSaveIcon.innerHTML = BBE_ICONS.cloud(14);
     newSaveBtn.disabled = false;
 
     newSaveBtn.addEventListener("click", async (e) => {
       e.preventDefault();
       const text = textarea.value.trim();
       if (!text) {
-        showToast("Please enter a note before saving.", 2500);
+        showToast("Please enter a note before saving.", { duration: 2500, icon: "warn" });
         textarea.focus();
         return;
       }
 
       newSaveBtn.disabled = true;
-      activeSaveIcon.textContent = "⏳";
+      activeSaveIcon.innerHTML = BBE_ICONS.spinner(14);
       activeSaveText.textContent = "Saving to YouVersion...";
 
       const res = await saveNativeNote(usfmArray, text, p?.id || 59);
       if (res && res.success) {
         modal.classList.remove("open");
-        showToast(`✓ Note saved directly to your YouVersion account! (${refLabel})`, 4000);
+        showToast(`Note saved directly to your YouVersion account! (${refLabel})`, { duration: 4000, icon: "check" });
       } else {
         newSaveBtn.disabled = false;
-        activeSaveIcon.textContent = "☁️";
+        activeSaveIcon.innerHTML = BBE_ICONS.cloud(14);
         activeSaveText.textContent = "Save to YouVersion";
-        showToast(`❌ Failed to save to YouVersion: ${res?.error || "Unknown error"}`, 4500);
+        showToast(`Failed to save to YouVersion: ${res?.error || "Unknown error"}`, { duration: 4500, icon: "error" });
       }
     });
 
@@ -2212,7 +2990,7 @@
   }
 
   function handlePassageSelection() {
-    if (!S.enabled) {
+    if (!S.enabled || html.classList.contains("bbe-sermon-drawing")) {
       if (selectionBarEl) selectionBarEl.classList.remove("show");
       return;
     }
@@ -2223,13 +3001,21 @@
       return;
     }
 
-    const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const chapterEl = (() => {
+      // Selections made inside a compare column (columns layout) count as selections of the chapter
+      const s0 = window.getSelection();
+      const anchor = s0 && s0.rangeCount ? s0.getRangeAt(0).commonAncestorContainer : null;
+      const node = anchor && (anchor.nodeType === 1 ? anchor : anchor.parentElement);
+      const col = node && node.closest ? node.closest("#bbe-compare-grid .bbe-compare-col .bbe-compare-body") : null;
+      return col || getChapterEl();
+    })();
     if (!chapterEl) {
       if (selectionBarEl) selectionBarEl.classList.remove("show");
       return;
     }
 
     const range = sel.getRangeAt(0);
+
     if (!chapterEl.contains(range.commonAncestorContainer)) {
       if (selectionBarEl) selectionBarEl.classList.remove("show");
       return;
@@ -2249,18 +3035,29 @@
     const p = bbeParsePath(location.pathname, getAllVersions());
     if (!p) return;
 
-    const allVerses = Array.from(chapterEl.querySelectorAll('[class*="_verse"][data-usfm]'));
+    const allVerses = getChapterVerseEls(chapterEl);
     const matched = [];
     const prefix = `${p.book}.${p.chapter}.`;
 
     for (const v of allVerses) {
-      if (range.intersectsNode(v)) {
-        const usfm = v.getAttribute("data-usfm") || "";
-        if (usfm.startsWith(prefix)) {
-          const num = parseInt(usfm.slice(prefix.length), 10);
-          if (!isNaN(num) && !matched.includes(num)) {
-            matched.push(num);
-          }
+      if (!range.intersectsNode(v)) continue;
+      // intersectsNode is true even when the range merely touches the node's edge,
+      // which over-selects the neighbouring verse. Require real selected text.
+      try {
+        const ir = document.createRange();
+        ir.selectNodeContents(v);
+        if (range.compareBoundaryPoints(Range.START_TO_START, ir) > 0) ir.setStart(range.startContainer, range.startOffset);
+        if (range.compareBoundaryPoints(Range.END_TO_END, ir) < 0) ir.setEnd(range.endContainer, range.endOffset);
+        const t = ir.cloneContents();
+        const tmp = document.createElement("div");
+        tmp.appendChild(t);
+        tmp.querySelectorAll('.bbe-verse-badge, .bbe-verse-actions-wrap, [class*="_label"], [class*="_note"], sup, .ref, [class*="_ref"], [class*="_footnote"]').forEach(el => el.remove());
+        if (!tmp.textContent.trim()) continue;
+      } catch (err) { /* fall through and trust intersectsNode */ }
+      const usfm = v.getAttribute("data-usfm") || "";
+      if (usfm.startsWith(prefix)) {
+        for (const num of extractUsfmVerseNums(usfm)) {
+          if (!matched.includes(num)) matched.push(num);
         }
       }
     }
@@ -2308,7 +3105,7 @@
       </span>
       <span class="bbe-sel-sep"></span>
       <button type="button" class="bbe-sel-btn bbe-sel-note" title="${signedIn ? `Add personal note for ${refLabel} (Saved to your YouVersion account)` : `Log in required to take personal notes for ${refLabel}`}">
-        <span class="bbe-sel-note-icon">${signedIn ? '📝' : '🔒'}</span>
+        <span class="bbe-sel-note-icon" style="display:inline-flex;align-items:center;">${signedIn ? BBE_ICONS.note(13) : BBE_ICONS.lock(13)}</span>
         <span>${signedIn ? 'Note' : 'Note (Log in)'}</span>
       </button>
     `;
@@ -2321,9 +3118,11 @@
         e.stopPropagation();
         const color = swBtn.dataset.color;
         const res = await applyNativeHighlight(usfmList, color);
+        if (res && res.success === false) { bar.classList.remove("show"); showToast(`Not saved: ${res.error}`, 5000); return; }
         bar.classList.remove("show");
+        bbeSyncCompareHighlights(usfmList, color);
         if (isUserSignedIn()) {
-          showToast(`🖍️ Highlighted ${refLabel}`);
+          showToast(`Highlighted ${refLabel}`);
         } else {
           showTemporaryHighlightBanner(refLabel);
         }
@@ -2337,9 +3136,11 @@
       clearHlBtn.addEventListener("click", async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        await applyNativeHighlight(usfmList, null);
+        const rm = await applyNativeHighlight(usfmList, null);
         bar.classList.remove("show");
-        showToast(`🖍️ Removed highlight on ${refLabel}`);
+        if (rm && rm.success === false) { showToast(`Not removed: ${rm.error}`, 5000); return; }
+        bbeSyncCompareHighlights(usfmList, null);
+        showToast(`Removed highlight on ${refLabel}`);
       });
     }
 
@@ -2391,7 +3192,7 @@
     if (!e.target || !e.target.closest) return;
     if (e.target.closest("a, button, input, textarea, select, [contenteditable='true'], #bbe-drawer, #bbe-bar, #bbe-selection-copy-bar, #bbe-word-tooltip")) return;
 
-    const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const chapterEl = getChapterEl();
     if (!chapterEl || !chapterEl.contains(e.target)) return;
 
     const verseEl = e.target.closest("[data-usfm]");
@@ -2405,7 +3206,7 @@
 
     const vNum = parseInt(usfm.slice(prefix.length), 10);
     if (!isNaN(vNum) && vNum >= 1) {
-      openCommentaryDrawer(p.book, p.chapter, vNum);
+      openCommentaryDrawer(p.book, p.chapter, vNum, null, null, { explicitVerse: true });
     }
   });
 
@@ -2425,7 +3226,7 @@
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.rangeCount) return;
 
-    const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const chapterEl = getChapterEl();
     if (!chapterEl) return;
 
     const range = sel.getRangeAt(0);
@@ -2450,7 +3251,7 @@
     const p = bbeParsePath(location.pathname, getAllVersions());
 
     if (S.copyIncludeReference && p) {
-      const allVerses = Array.from(chapterEl.querySelectorAll('[class*="_verse"][data-usfm]'));
+      const allVerses = getChapterVerseEls(chapterEl);
       const matched = [];
       for (const v of allVerses) {
         if (range.intersectsNode(v)) {
@@ -2469,7 +3270,7 @@
     if (e.clipboardData) {
       e.clipboardData.setData("text/plain", finalText);
       e.preventDefault();
-      showToast("📋 Copied clean scripture text");
+      showToast("Copied clean scripture text", { icon: "copy" });
     }
   });
 
@@ -2530,7 +3331,8 @@
       titleWrap.className = "bbe-comm-title-wrap";
 
       const authorTitle = document.createElement("span");
-      authorTitle.textContent = `📖 ${item.title}`;
+      authorTitle.style.cssText = "display:inline-flex;align-items:center;gap:6px;";
+      authorTitle.innerHTML = `${BBE_ICONS.book(13)}<span>${bbeEscapeHtml(item.title)}</span>`;
       titleWrap.appendChild(authorTitle);
 
       if (item.badge) {
@@ -2627,7 +3429,7 @@
         ctaBtn.target = "_blank";
         ctaBtn.rel = "noopener noreferrer";
         ctaBtn.className = "bbe-comm-cta-btn";
-        ctaBtn.innerHTML = `<span>📖 Read <b>"${item.sectionTitle || 'Section'}"</b> on The Gospel Coalition</span> <span>↗</span>`;
+        ctaBtn.innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px;">${BBE_ICONS.book(13)}<span>Read <b>"${bbeEscapeHtml(item.sectionTitle || 'Section')}"</b> on The Gospel Coalition</span></span> <span>↗</span>`;
         card.appendChild(ctaBtn);
       }
 
@@ -2674,7 +3476,7 @@
       if (wordBody) wordBody.style.display = "flex";
       if (badge) badge.textContent = "Strong's Lexicon & Interlinear";
       if (hubLink) hubLink.href = `https://biblehub.com/interlinear/${bookSlug}/${ch}-${v}.htm`;
-      fetchAndRenderWordStudy(bookCode, ch, v);
+      fetchAndRenderWordStudy(bookCode, ch, v, activeWordStudyIndex);
     } else {
       commTab?.classList.add("active");
       if (chipsEl) chipsEl.style.display = "";
@@ -2693,7 +3495,7 @@
 
     // Check if target is within the active chapter on page
     if (curP && curP.book === targetUSFM && String(curP.chapter) === targetCh) {
-      const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+      const chapterEl = getChapterEl();
       if (chapterEl) {
         const labels = chapterEl.querySelectorAll('[class*="_label"]');
         for (const label of labels) {
@@ -2701,7 +3503,16 @@
           if (num === targetV) {
             const verseEl = label.closest('[class*="_verse"]') || label.parentElement;
             if (verseEl) {
-              verseEl.scrollIntoView({ behavior: "smooth", block: "center" });
+              if (isBottomDrawerActive()) {
+                const r = verseEl.getBoundingClientRect();
+                const topSafe = getTopSafeZone();
+                const visibleBottom = (window.innerHeight || 800) - getBottomDrawerHeightPx();
+                const targetCenter = topSafe + Math.max(80, (visibleBottom - topSafe) * 0.45);
+                const verseCenter = r.top + (r.height / 2);
+                animateDrawerScrollBy(verseCenter - targetCenter, 280);
+              } else {
+                verseEl.scrollIntoView({ behavior: "smooth", block: "center" });
+              }
               verseEl.style.transition = "outline 0.2s, background-color 0.3s";
               verseEl.style.outline = "2px solid #2563eb";
               verseEl.style.backgroundColor = "rgba(37, 99, 235, 0.12)";
@@ -2709,7 +3520,7 @@
                 verseEl.style.outline = "";
                 verseEl.style.backgroundColor = "";
               }, 2200);
-              showToast(`⚡ Jumped to ${BBE_BOOK_NAMES[targetUSFM] || targetUSFM} ${targetCh}:${targetV}`);
+              showToast(`Jumped to ${BBE_BOOK_NAMES[targetUSFM] || targetUSFM} ${targetCh}:${targetV}`, { icon: "zap" });
               return;
             }
           }
@@ -2782,7 +3593,7 @@
         commEnableUtley: bbeIsCommentaryEnabled("bob_utley", S)
       }
     }, (res) => {
-        if (!isDrawerOpen || currentDrawerPassage.verse !== vNum || activeStudyTab !== "commentary") return;
+        if (!isDrawerOpen || currentDrawerPassage.book !== bookCode || currentDrawerPassage.chapter !== String(chapter) || currentDrawerPassage.verse !== vNum || activeStudyTab !== "commentary") return;
 
         if (res && res.bibleHubUrl && hubLink) {
           hubLink.href = res.bibleHubUrl;
@@ -2836,7 +3647,7 @@
       chapter: String(chapter),
       verse: vNum
     }, (res) => {
-        if (!isDrawerOpen || currentDrawerPassage.verse !== vNum || activeStudyTab !== "crossref") return;
+        if (!isDrawerOpen || currentDrawerPassage.book !== bookCode || currentDrawerPassage.chapter !== String(chapter) || currentDrawerPassage.verse !== vNum || activeStudyTab !== "crossref") return;
 
         if (res && res.bibleHubUrl && hubLink) {
           hubLink.href = res.bibleHubUrl;
@@ -2860,7 +3671,7 @@
 
         const summaryEl = document.createElement("div");
         summaryEl.className = "bbe-crossref-summary";
-        summaryEl.innerHTML = `<b>Treasury of Scripture Knowledge (TSK)</b> — <b>${totalVerses}</b> connected ${totalVerses === 1 ? "verse" : "verses"} across <b>${res.sections.length}</b> thematic ${res.sections.length === 1 ? "phrase" : "phrases"}. Click any reference or <b>↗ Jump</b> to view on Bible.com, or <b>💬 Study</b> to inspect in this drawer.`;
+        summaryEl.innerHTML = `<b>Treasury of Scripture Knowledge (TSK)</b> — <b>${totalVerses}</b> connected ${totalVerses === 1 ? "verse" : "verses"} across <b>${res.sections.length}</b> thematic ${res.sections.length === 1 ? "phrase" : "phrases"}. Click any reference or <b>↗ Jump</b> to view on Bible.com, or <b>Study</b> to inspect in this drawer.`;
         crossBody.appendChild(summaryEl);
 
         res.sections.forEach(sec => {
@@ -2869,7 +3680,7 @@
 
           const headingEl = document.createElement("div");
           headingEl.className = "bbe-crossref-heading";
-          headingEl.innerHTML = `<span>💬</span> <span class="bbe-crossref-quote">“${sec.phrase}”</span>`;
+          headingEl.innerHTML = `${BBE_ICONS.quote(13)} <span class="bbe-crossref-quote">“${sec.phrase}”</span>`;
           secEl.appendChild(headingEl);
 
           sec.verses.forEach(v => {
@@ -2908,7 +3719,8 @@
             const studyBtn = document.createElement("button");
             studyBtn.type = "button";
             studyBtn.className = "bbe-crossref-btn";
-            studyBtn.innerHTML = "💬 Study";
+            studyBtn.style.cssText = "display:inline-flex;align-items:center;gap:4px;";
+            studyBtn.innerHTML = `${BBE_ICONS.book(11)}<span>Study</span>`;
             studyBtn.title = `Open verse study drawer for ${v.ref}`;
             studyBtn.addEventListener("click", () => {
               openCommentaryDrawer(v.usfm, v.chapter, v.verseNum);
@@ -2951,7 +3763,7 @@
   function getContextualStudyVerse(p) {
     if (!p) return 1;
     const prefix = `${p.book}.${p.chapter}.`;
-    const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const chapterEl = getChapterEl();
 
     const parseUsfmNum = (el) => {
       const usfm = el?.getAttribute?.("data-usfm") || "";
@@ -3012,10 +3824,34 @@
     return urlSpec ? urlSpec.min : 1;
   }
 
-  function openCommentaryDrawer(bookCode, chapter, verseNum, optTab) {
+  function updateDrawerPreview(bookCode, chapter, verseNum, p) {
+    const drawer = document.getElementById("bbe-drawer");
+    if (!drawer) return;
+    const previewEl = drawer.querySelector("#bbe-drawer-preview");
+    if (!previewEl) return;
+    const allVers = getAllVersions();
+    const activeP = p || bbeParsePath(location.pathname, allVers);
+    const activeKey = activeP ? (bbeKeyForId(activeP.id, allVers) || activeP.abbr || "NIV") : "NIV";
+    const matchesPageChapter = !activeP || (activeP.book === bookCode && String(activeP.chapter) === String(chapter));
+    const vNum = Number(verseNum) || 1;
+    const verseText = matchesPageChapter ? getVerseTextFromDom(vNum) : "";
+
+    if (verseText) {
+      const bookTitle = BBE_BOOK_NAMES[bookCode] || bookCode;
+      previewEl.style.display = "";
+      previewEl.innerHTML = `<b>${bookTitle} ${chapter}:${vNum} (${activeKey})</b> “${verseText}”`;
+    } else {
+      previewEl.style.display = "none";
+    }
+  }
+
+  function openCommentaryDrawer(bookCode, chapter, verseNum, optTab, optWordIdx, triggerOpts) {
     const { backdrop, drawer } = ensureDrawerElements();
     const wasOpen = isDrawerOpen;
+    const naturalMaxScrollY = getPreClearanceNaturalMaxScrollY();
+    const wasAtBottomOfPage = (naturalMaxScrollY > 0 && window.scrollY >= naturalMaxScrollY - 48);
     isDrawerOpen = true;
+    activeWordStudyIndex = (typeof optWordIdx === "number" && optWordIdx >= 0) ? optWordIdx : 0;
 
     applyDrawerDockClasses(drawer);
 
@@ -3029,6 +3865,12 @@
     backdrop.classList.add("open");
     drawer.classList.add("open");
 
+    glideScriptureAboveBottomDrawer(bookCode, chapter, vNum, {
+      wasAtBottomOfPage,
+      explicitVerse: Boolean(triggerOpts?.explicitVerse),
+      isStepper: Boolean(triggerOpts?.isStepper)
+    });
+
     const bookTitle = BBE_BOOK_NAMES[bookCode] || bookCode;
     const refText = `${bookTitle} ${chapter}:${vNum}`;
 
@@ -3036,17 +3878,9 @@
     drawer.querySelector("#bbe-stepper-label").textContent = `v. ${vNum}`;
     drawer.querySelector("#bbe-stepper-prev").disabled = (vNum <= 1);
 
-    const previewEl = drawer.querySelector("#bbe-drawer-preview");
-    const verseText = getVerseTextFromDom(vNum);
-    const p = bbeParsePath(location.pathname);
-    const activeKey = p ? (bbeKeyForId(p.id) || p.abbr || "NIV") : "NIV";
-
-    if (verseText) {
-      previewEl.style.display = "";
-      previewEl.innerHTML = `<b>${bookTitle} ${chapter}:${vNum} (${activeKey})</b> “${verseText}”`;
-    } else {
-      previewEl.style.display = "none";
-    }
+    const allVers = getAllVersions();
+    const p = bbeParsePath(location.pathname, allVers);
+    updateDrawerPreview(bookCode, chapter, vNum, p);
 
     if (optTab) {
       activeStudyTab = optTab;
@@ -3059,7 +3893,7 @@
   }
 
   function renderVerseBadges(p, force = false) {
-    const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const chapterEl = getChapterEl();
     if (!chapterEl) return;
 
     const chapKey = `${p.book}.${p.chapter}.${p.verses || "FULL"}.${p.id || p.abbr}`;
@@ -3082,7 +3916,7 @@
       label.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        openCommentaryDrawer(p.book, p.chapter, vNum);
+        openCommentaryDrawer(p.book, p.chapter, vNum, null, null, { explicitVerse: true });
       };
     });
   }
@@ -3123,7 +3957,7 @@
       chapter: String(chapter),
       verse: vNum
     }, (res) => {
-        if (!isDrawerOpen || currentDrawerPassage.verse !== vNum || activeStudyTab !== "wordstudy") return;
+        if (!isDrawerOpen || currentDrawerPassage.book !== bookCode || currentDrawerPassage.chapter !== String(chapter) || currentDrawerPassage.verse !== vNum || activeStudyTab !== "wordstudy") return;
 
         if (res && res.bibleHubUrl && hubLink) {
           hubLink.href = res.bibleHubUrl;
@@ -3173,10 +4007,10 @@
       card.className = "bbe-word-card" + (idx === initialIdx ? " active" : "");
 
       card.innerHTML = `
-        <div class="bbe-card-orig ${w.lang === 'hebrew' ? 'hebrew' : 'greek'}">${w.original || ''}</div>
+        <div class="bbe-card-orig notranslate ${w.lang === 'hebrew' ? 'hebrew' : 'greek'}" translate="no">${w.original || ''}</div>
         <div class="bbe-card-translit">${w.translit || ''}</div>
         <div class="bbe-card-gloss">“${w.gloss || ''}”</div>
-        <span class="bbe-card-strongs ${w.lang === 'hebrew' ? 'hebrew' : 'greek'}">${w.strongs || ''}</span>
+        <span class="bbe-card-strongs notranslate ${w.lang === 'hebrew' ? 'hebrew' : 'greek'}" translate="no">${w.strongs || ''}</span>
         <div class="bbe-card-pos">${w.posCode || ''}</div>
       `;
 
@@ -3234,7 +4068,7 @@
       container.innerHTML = `
         <div class="bbe-tooltip-header">
           <div class="bbe-tooltip-badge-group">
-            <span class="bbe-strongs-pill ${langClass}">${e.strongs}</span>
+            <span class="bbe-strongs-pill notranslate ${langClass}" translate="no">${e.strongs}</span>
             <span class="bbe-tooltip-translit">${e.translit || word.translit || ''}</span>
             ${e.phonetic ? `<span class="bbe-tooltip-phonetic">(${e.phonetic})</span>` : ''}
           </div>
@@ -3244,7 +4078,7 @@
         </div>
         <div class="bbe-tooltip-main">
           <div class="bbe-tooltip-orig-row">
-            <span class="bbe-tooltip-orig ${langClass}">${e.original || word.original || ''}</span>
+            <span class="bbe-tooltip-orig notranslate ${langClass}" translate="no">${e.original || word.original || ''}</span>
             <span class="bbe-tooltip-pos">${e.pos || word.posFull || word.posCode || ''}</span>
           </div>
           ${e.pronunciation ? `<div style="font-size:11px;color:#64748b;">Pronunciation: <i>${e.pronunciation}</i></div>` : ''}
@@ -3266,6 +4100,7 @@
     if (!wordTooltipEl) {
       wordTooltipEl = document.createElement("div");
       wordTooltipEl.id = "bbe-word-tooltip";
+      wordTooltipEl.lang = "en";
       document.body.appendChild(wordTooltipEl);
 
       wordTooltipEl.addEventListener("click", (e) => {
@@ -3304,7 +4139,10 @@
     left = Math.max(margin, Math.min(window.innerWidth - tooltipWidth - margin, left));
 
     let top = rect.bottom + 8;
-    if (top + tooltipHeight > window.innerHeight && rect.top > tooltipHeight + margin) {
+    const visibleBottom = isBottomDrawerActive()
+      ? Math.max(260, window.innerHeight - getBottomDrawerHeightPx())
+      : window.innerHeight;
+    if (top + tooltipHeight > visibleBottom && rect.top > tooltipHeight + margin) {
       top = rect.top - tooltipHeight - 8;
     }
 
@@ -3379,7 +4217,7 @@
     tooltip.innerHTML = `
       <div class="bbe-tooltip-header">
         <div class="bbe-tooltip-badge-group">
-          <span class="bbe-strongs-pill ${langClass}">${w.strongs}</span>
+          <span class="bbe-strongs-pill notranslate ${langClass}" translate="no">${w.strongs}</span>
           <span class="bbe-tooltip-translit">${w.translit || ''}</span>
         </div>
         <div class="bbe-tooltip-actions">
@@ -3389,7 +4227,7 @@
       </div>
       <div class="bbe-tooltip-main" id="bbe-tooltip-main-content">
         <div class="bbe-tooltip-orig-row">
-          <span class="bbe-tooltip-orig ${langClass}">${w.original || ''}</span>
+          <span class="bbe-tooltip-orig notranslate ${langClass}" translate="no">${w.original || ''}</span>
           <span class="bbe-tooltip-pos">${w.posCode || ''}</span>
         </div>
         <div class="bbe-tooltip-def">${w.shortDef || w.gloss || ''}</div>
@@ -3400,7 +4238,7 @@
       </div>
       <div class="bbe-tooltip-words-strip" id="bbe-tooltip-words-strip"></div>
       <div style="margin-top:8px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;">
-        <button type="button" class="bbe-preview-btn" id="bbe-tooltip-drawer-btn" style="font-size:11px;padding:3px 8px;">📖 Open in Study Drawer</button>
+        <button type="button" class="bbe-preview-btn" id="bbe-tooltip-drawer-btn" style="font-size:11px;padding:3px 8px;display:inline-flex;align-items:center;gap:5px;">${BBE_ICONS.book(12)}<span>Open in Study Drawer</span></button>
       </div>
     `;
 
@@ -3408,7 +4246,7 @@
 
     tooltip.querySelector("#bbe-tooltip-drawer-btn").addEventListener("click", () => {
       hideWordTooltip();
-      openCommentaryDrawer(bookCode, chapter, vNum, "wordstudy", selectedIdx);
+      openCommentaryDrawer(bookCode, chapter, vNum, "wordstudy", selectedIdx, { explicitVerse: true });
     });
 
     const strip = tooltip.querySelector("#bbe-tooltip-words-strip");
@@ -3438,7 +4276,7 @@
         const e = res.entry;
         mainEl.innerHTML = `
           <div class="bbe-tooltip-orig-row">
-            <span class="bbe-tooltip-orig ${langClass}">${e.original || w.original || ''}</span>
+            <span class="bbe-tooltip-orig notranslate ${langClass}" translate="no">${e.original || w.original || ''}</span>
             <span class="bbe-tooltip-pos">${e.pos || w.posFull || w.posCode || ''}</span>
           </div>
           ${e.phonetic ? `<div class="bbe-tooltip-phonetic">Phonetic: ${e.phonetic} ${e.pronunciation ? `(${e.pronunciation})` : ''}</div>` : ''}
@@ -3565,7 +4403,7 @@
       hideWordHoverHighlight();
       return;
     }
-    const chapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const chapterEl = getChapterEl();
     if (!chapterEl) return;
 
     if (!chapterEl.dataset.bbeWordStudyBound) {
@@ -3573,7 +4411,7 @@
 
       let wordMouseMoveRaf = null;
       chapterEl.addEventListener("mousemove", (e) => {
-        if (!S.enabled || !S.wordStudyMode) return;
+        if (!S.enabled || !S.wordStudyMode || html.classList.contains("bbe-sermon-drawing")) return;
         const clientX = e.clientX;
         const clientY = e.clientY;
 
@@ -3616,7 +4454,7 @@
       });
 
       chapterEl.addEventListener("click", (e) => {
-        if (!S.enabled || !S.wordStudyMode) return;
+        if (!S.enabled || !S.wordStudyMode || html.classList.contains("bbe-sermon-drawing")) return;
         // Don't intercept clicks on verse labels, buttons, or links
         if (e.target.closest('[class*="_label"]') || e.target.closest('button') || e.target.closest('a')) return;
 
@@ -3638,7 +4476,7 @@
     const p = bbeParsePath(location.pathname, allVers);
     if (!p) return;
     const clean = cleanChapterUrl(location.pathname);
-    const curChapterEl = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const curChapterEl = getChapterEl();
     if (curChapterEl && adjacentChapterCache.has(clean)) {
       adjacentChapterCache.get(clean).then(data => {
         curChapterEl.innerHTML = data.html;
@@ -3715,7 +4553,10 @@
       }
     }
 
-    const k = e.key.toLowerCase();
+    const rawKey = /^[a-zA-Z0-9]$/.test(e.key)
+      ? e.key
+      : (/^(?:Key[A-Z]|Digit[0-9])$/.test(e.code || "") ? e.code.slice(-1) : (e.key || ""));
+    const k = rawKey.toLowerCase();
 
     function toggleDrawerShortcutTab(tab, event) {
       const allVers = getAllVersions();
@@ -3773,7 +4614,7 @@
       e.preventDefault();
       const next = !S.wordStudyMode;
       bbeSave({ wordStudyMode: next }).then(() => {
-        showToast(next ? "🔬 Word Study mode activated. Hover or click words for Strong's lexicon." : "🔬 Word Study mode deactivated.");
+        showToast(next ? "Word Study mode activated. Hover or click words for Strong's lexicon." : "Word Study mode deactivated.", { icon: "lexicon" });
       });
       return;
     }
@@ -3797,11 +4638,11 @@
         const defColor = S.defaultHighlightColor || "fffe00";
         if (currentHl && currentHl.color === defColor) {
           applyNativeHighlight([usfm], null);
-          showToast(`🖍️ Removed highlight`);
+          showToast(`Removed highlight`);
         } else {
           applyNativeHighlight([usfm], defColor);
           if (isUserSignedIn()) {
-            showToast(`🖍️ Highlighted ${usfm.split('.').pop()}`);
+            showToast(`Highlighted ${usfm.split('.').pop()}`);
           } else {
             showTemporaryHighlightBanner(`Verse ${usfm.split('.').pop()}`);
           }
@@ -3812,11 +4653,15 @@
   });
 
   /* ---------------- Toolbar Construction ---------------- */
-  function createBtn(text, title, onClick, isActive, isSmall) {
+  function createBtn(text, title, onClick, isActive, isSmall, iconSvg) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "bbe-btn" + (isActive ? " bbe-active" : "") + (isSmall ? " bbe-btn-sm" : "");
-    b.textContent = text;
+    if (iconSvg) {
+      b.innerHTML = `${iconSvg}<span>${bbeEscapeHtml(text)}</span>`;
+    } else {
+      b.textContent = text;
+    }
     b.title = title || "";
     b.addEventListener("click", (e) => {
       e.preventDefault();
@@ -3999,6 +4844,139 @@
     });
   });
 
+  function clampPopoverPosition(pop) {
+    if (!pop || !pop.classList.contains("open")) return;
+    pop.style.left = "50%";
+    pop.style.right = "auto";
+    pop.style.transform = "translateX(-50%)";
+    const rect = pop.getBoundingClientRect();
+    const pad = 12;
+    if (rect.right > window.innerWidth - pad) {
+      const overflow = rect.right - (window.innerWidth - pad);
+      pop.style.transform = `translateX(calc(-50% - ${Math.ceil(overflow)}px))`;
+    } else if (rect.left < pad) {
+      const overflow = pad - rect.left;
+      pop.style.transform = `translateX(calc(-50% + ${Math.ceil(overflow)}px))`;
+    }
+  }
+
+  function buildGroupedVersionPopover({ id, title, allVers, selectedKeys, minSelected = 1, presets = [], onToggle, wasOtherOpen = false }) {
+    const popover = document.createElement("div");
+    popover.className = "bbe-versions-popover";
+    if (id) popover.id = id;
+
+    const header = document.createElement("div");
+    header.className = "bbe-popover-title";
+    const titleSpan = document.createElement("span");
+    titleSpan.textContent = title;
+    header.appendChild(titleSpan);
+
+    if (presets.length > 0) {
+      const presetsWrap = document.createElement("div");
+      presetsWrap.className = "bbe-popover-presets";
+      for (const preset of presets) {
+        const pBtn = document.createElement("button");
+        pBtn.type = "button";
+        pBtn.className = "bbe-popover-preset-btn" + (preset.active ? " active" : "");
+        pBtn.textContent = preset.label;
+        if (preset.title) pBtn.title = preset.title;
+        pBtn.addEventListener("click", async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          await preset.onClick();
+        });
+        presetsWrap.appendChild(pBtn);
+      }
+      header.appendChild(presetsWrap);
+    }
+    popover.appendChild(header);
+
+    const selectedSet = new Set(selectedKeys);
+    const groups = bbeGroupVersions(allVers, S.userTranslations);
+
+    const createPillGrid = (keys) => {
+      const grid = document.createElement("div");
+      grid.className = "bbe-popover-grid";
+      for (const verKey of keys) {
+        const v = allVers[verKey];
+        if (!v) continue;
+        const pill = document.createElement("span");
+        const isSel = selectedSet.has(verKey);
+        pill.className = "bbe-popover-pill notranslate" + (isSel ? " active" : "");
+        pill.setAttribute("translate", "no");
+        pill.textContent = (isSel ? "✓ " : "") + verKey;
+        pill.title = v.name;
+        pill.addEventListener("click", async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (selectedSet.has(verKey)) {
+            if (selectedSet.size > minSelected) {
+              selectedSet.delete(verKey);
+            }
+          } else {
+            selectedSet.add(verKey);
+          }
+          const updated = Object.keys(allVers).filter(k => selectedSet.has(k));
+          await onToggle(updated);
+        });
+        grid.appendChild(pill);
+      }
+      return grid;
+    };
+
+    if (groups.english.length > 0) {
+      const engLabel = document.createElement("div");
+      engLabel.className = "bbe-popover-section-label";
+      engLabel.textContent = "English";
+      popover.appendChild(engLabel);
+      popover.appendChild(createPillGrid(groups.english));
+    }
+
+    if (groups.custom.length > 0) {
+      const custLabel = document.createElement("div");
+      custLabel.className = "bbe-popover-section-label";
+      custLabel.textContent = "Custom";
+      popover.appendChild(custLabel);
+      popover.appendChild(createPillGrid(groups.custom));
+    }
+
+    if (groups.other.length > 0) {
+      const otherSelectedCount = groups.other.filter(k => selectedSet.has(k)).length;
+      const details = document.createElement("details");
+      details.className = "bbe-popover-lang-details";
+      if (wasOtherOpen || otherSelectedCount > 0) {
+        details.open = true;
+      }
+      const summary = document.createElement("summary");
+      summary.className = "bbe-popover-lang-summary";
+      summary.textContent = otherSelectedCount > 0
+        ? `Other Languages (${otherSelectedCount}/${groups.other.length})`
+        : `Other Languages (${groups.other.length})`;
+      summary.addEventListener("click", (e) => e.stopPropagation());
+      details.appendChild(summary);
+      details.appendChild(createPillGrid(groups.other));
+      popover.appendChild(details);
+    }
+
+    const footer = document.createElement("div");
+    footer.className = "bbe-popover-footer";
+    const shortcutsLink = document.createElement("button");
+    shortcutsLink.type = "button";
+    shortcutsLink.className = "bbe-popover-link-btn";
+    shortcutsLink.style.cssText = "display:inline-flex;align-items:center;justify-content:center;gap:5px;";
+    shortcutsLink.innerHTML = `${BBE_ICONS.keyboard(13)}<span>Edit Shortcuts &amp; Versions</span>`;
+    shortcutsLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      popover.classList.remove("open");
+      openExtensionOptionsTab("shortcuts");
+    });
+    footer.appendChild(shortcutsLink);
+    popover.appendChild(footer);
+
+    return popover;
+  }
+
   function renderToolbar(p) {
     if (S.hideSwitcher || !S.enabled) {
       document.getElementById("bbe-bar")?.remove();
@@ -4016,7 +4994,7 @@
       bar.addEventListener("mouseleave", () => {
         bar.classList.remove("bbe-hover");
       });
-      const textContainer = document.querySelector('[class*="_yv-bible-text"]') ||
+      const textContainer = getTextEl() ||
                             document.querySelector('[class*="max-w-[600px]"]');
       const readerCol = textContainer ? (textContainer.closest('.mx-auto') || textContainer.parentElement) : null;
       if (readerCol && readerCol.parentElement) {
@@ -4030,7 +5008,7 @@
         }
       }
     } else {
-      const textContainer = document.querySelector('[class*="_yv-bible-text"]') ||
+      const textContainer = getTextEl() ||
                             document.querySelector('[class*="max-w-[600px]"]');
       const readerCol = textContainer ? (textContainer.closest('.mx-auto') || textContainer.parentElement) : null;
       if (readerCol && readerCol.parentElement && bar.parentElement !== readerCol.parentElement) {
@@ -4044,11 +5022,16 @@
       bar.classList.remove("bbe-hidden");
     }
 
+    const wasToolbarPopOpen = !!bar.querySelector("#bbe-toolbar-versions-popover.open");
+    const wasToolbarOtherOpen = !!bar.querySelector("#bbe-toolbar-versions-popover .bbe-popover-lang-details[open]");
+    const wasComparePopOpen = !!bar.querySelector("#bbe-compare-versions-popover.open");
+    const wasCompareOtherOpen = !!bar.querySelector("#bbe-compare-versions-popover .bbe-popover-lang-details[open]");
+
     bar.replaceChildren();
 
     const allVers = getAllVersions();
     const activeKey = bbeKeyForId(p.id, allVers) || p.abbr || "NIV";
-    const bookTitle = BBE_BOOK_NAMES[p.book] || p.book;
+    const bookTitle = getPageBookTitle(p);
 
     // --- Main Row ---
     const mainRow = document.createElement("div");
@@ -4063,7 +5046,7 @@
 
     const searchIcon = document.createElement("span");
     searchIcon.className = "bbe-search-icon";
-    searchIcon.textContent = "🔍";
+    searchIcon.innerHTML = BBE_ICONS.search(13);
 
     const currentPassageTitle = p.verses ? `${bookTitle} ${p.chapter}:${p.verses}` : `${bookTitle} ${p.chapter}`;
 
@@ -4216,7 +5199,8 @@
       
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "bbe-btn bbe-version-btn" + (isCur ? " bbe-active" : "");
+      btn.className = "bbe-btn bbe-version-btn notranslate" + (isCur ? " bbe-active" : "");
+      btn.setAttribute("translate", "no");
       btn.dataset.version = key;
       const hint = bbeGetKeyHintForVersion(key, S.customShortcuts);
       btn.title = `${v.name}${hint ? " (Shortcut: " + hint + ")" : ""}`;
@@ -4228,13 +5212,19 @@
       // Key shortcut badge
       if (hint && S.enableKeyShortcuts) {
         const hintSpan = document.createElement("span");
-        hintSpan.className = "bbe-key-hint";
+        hintSpan.className = "bbe-key-hint notranslate";
+        hintSpan.setAttribute("translate", "no");
         hintSpan.textContent = hint;
         btn.appendChild(hintSpan);
       }
 
       btn.addEventListener("mouseenter", () => {
-        if (!isCur) fetchChapter(key, p).catch(() => {});
+        if (!isCur) {
+          fetchChapter(key, p).catch(() => {});
+          if (allVers[key]?.id) {
+            fetchCloudHighlightsForChapter(`${p.book}.${p.chapter}`, allVers[key].id, false, { isPrefetch: true });
+          }
+        }
       });
 
       btn.addEventListener("click", (e) => {
@@ -4256,59 +5246,29 @@
     customizeBtn.textContent = "+";
     customizeBtn.title = "Customize which translation buttons appear on the top pill";
 
-    const popover = document.createElement("div");
-    popover.className = "bbe-versions-popover";
-    popover.innerHTML = `
-      <div class="bbe-popover-title">
-        <span>Choose Translations</span>
-      </div>
-      <div class="bbe-popover-grid" id="bbe-popover-grid"></div>
-      <div class="bbe-popover-footer">
-        <button type="button" class="bbe-popover-link-btn" id="bbe-open-shortcuts-link">⌨ Edit Shortcuts &amp; Versions</button>
-      </div>
-    `;
-
-    const popoverGrid = popover.querySelector("#bbe-popover-grid");
-    const selectedSet = new Set(activeToolbarList);
-
-    for (const verKey of Object.keys(allVers)) {
-      const pill = document.createElement("span");
-      const isSel = selectedSet.has(verKey);
-      pill.className = "bbe-popover-pill" + (isSel ? " active" : "");
-      pill.textContent = (isSel ? "✓ " : "") + verKey;
-      pill.title = allVers[verKey].name;
-
-      pill.addEventListener("click", async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (selectedSet.has(verKey)) {
-          if (selectedSet.size > 1) {
-            selectedSet.delete(verKey);
-          }
-        } else {
-          selectedSet.add(verKey);
-        }
-        const updated = Object.keys(allVers).filter(k => selectedSet.has(k));
+    const popover = buildGroupedVersionPopover({
+      id: "bbe-toolbar-versions-popover",
+      title: "Choose Translations",
+      allVers,
+      selectedKeys: activeToolbarList,
+      minSelected: 1,
+      wasOtherOpen: wasToolbarOtherOpen,
+      onToggle: async (updated) => {
         await bbeSave({ toolbarVersions: updated });
-      });
-
-      popoverGrid.appendChild(pill);
-    }
-
-    const shortcutsLink = popover.querySelector("#bbe-open-shortcuts-link");
-    if (shortcutsLink) {
-      shortcutsLink.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        popover.classList.remove("open");
-        openExtensionOptionsTab("shortcuts");
-      });
+      }
+    });
+    if (wasToolbarPopOpen) {
+      popover.classList.add("open");
     }
 
     customizeBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
+      document.querySelectorAll(".bbe-versions-popover.open").forEach(other => {
+        if (other !== popover) other.classList.remove("open");
+      });
       popover.classList.toggle("open");
+      clampPopoverPosition(popover);
     });
 
     popoverWrap.appendChild(customizeBtn);
@@ -4323,18 +5283,20 @@
 
     // Compare Button
     const compareBtn = createBtn(
-      S.compareOn ? "⫴ Comparing" : "⫴ Compare",
+      S.compareOn ? "Comparing" : "Compare",
       "Toggle side-by-side translation comparison",
       async () => {
         await bbeSave({ compareOn: !S.compareOn });
       },
-      S.compareOn
+      S.compareOn,
+      false,
+      BBE_ICONS.compare(13)
     );
     rightSec.appendChild(compareBtn);
 
     // Commentary Drawer Button
     const commBtn = createBtn(
-      isDrawerOpen ? "💬 Commentary On" : "💬 Commentary",
+      isDrawerOpen ? "Commentary On" : "Commentary",
       "Open study drawer (C: Commentary, R: Cross-References)",
       () => {
         if (isDrawerOpen) {
@@ -4344,24 +5306,54 @@
         }
       },
       isDrawerOpen,
-      true
+      true,
+      BBE_ICONS.book(13)
     );
     rightSec.appendChild(commBtn);
 
     // Word Study Mode Toggle Button
     const wordStudyBtn = createBtn(
-      S.wordStudyMode ? "🔬 Word Study On" : "🔬 Word Study",
+      S.wordStudyMode ? "Word Study On" : "Word Study",
       "Toggle Strong's Greek/Hebrew word study mode (Shortcut: W)",
       async () => {
         const next = !S.wordStudyMode;
         await bbeSave({ wordStudyMode: next });
-        showToast(next ? "🔬 Word Study mode activated. Hover or click words for Strong's lexicon." : "🔬 Word Study mode deactivated.");
+        showToast(next ? "Word Study mode activated. Hover or click words for Strong's lexicon." : "Word Study mode deactivated.", { icon: "lexicon" });
       },
       S.wordStudyMode,
-      true
+      true,
+      BBE_ICONS.lexicon(13)
     );
     wordStudyBtn.classList.add("bbe-wordstudy-btn");
     rightSec.appendChild(wordStudyBtn);
+
+    // Sermon Mode ("Look at the Book" Markup) Toggle Button — Lazy-loaded only when toggled on
+    if (S.showSermonBtn !== false) {
+      const isSermonActive = Boolean(window.BBE_SERMON && window.BBE_SERMON.isActive());
+      const sermonBtn = createBtn(
+        isSermonActive ? "Sermon On" : "Sermon",
+        S.compareOn
+          ? "Sermon Mode is not available in Compare Mode (exit Compare first)"
+          : "Toggle Sermon Mode ('Look at the Book' word circles, underlines, arrows & handwritten notes)",
+        async () => {
+          if (S.compareOn) {
+            showToast("Exit Compare Mode first to use Sermon Mode", { icon: "sermon" });
+            return;
+          }
+          const sm = await ensureSermonModeLoaded();
+          if (sm) sm.toggle();
+        },
+        isSermonActive,
+        true,
+        BBE_ICONS.sermon(13)
+      );
+      sermonBtn.classList.add("bbe-sermon-btn");
+      if (S.compareOn) {
+        sermonBtn.style.opacity = "0.45";
+        sermonBtn.style.cursor = "not-allowed";
+      }
+      rightSec.appendChild(sermonBtn);
+    }
 
     const sep1 = document.createElement("span");
     sep1.className = "bbe-sep";
@@ -4458,21 +5450,21 @@
             <span class="bbe-aa-theme-name" id="bbe-aa-theme-name">${prettyThemes[curTheme] || curTheme}</span>
           </div>
           <div class="bbe-aa-theme-grid">
-            <button type="button" class="bbe-theme-swatch swatch-system ${curTheme === 'system' ? 'active' : ''}" data-theme="system" title="System Default">⚪</button>
-            <button type="button" class="bbe-theme-swatch swatch-sepia ${curTheme === 'sepia' ? 'active' : ''}" data-theme="sepia" title="Warm Paper (Sepia)">📜</button>
-            <button type="button" class="bbe-theme-swatch swatch-light ${curTheme === 'light' ? 'active' : ''}" data-theme="light" title="Clean Light">☀️</button>
-            <button type="button" class="bbe-theme-swatch swatch-dark ${curTheme === 'dark' ? 'active' : ''}" data-theme="dark" title="Night Dark">🌙</button>
-            <button type="button" class="bbe-theme-swatch swatch-oled ${curTheme === 'oled' ? 'active' : ''}" data-theme="oled" title="OLED Pitch Black">🖤</button>
-            <button type="button" class="bbe-theme-swatch swatch-blue ${curTheme === 'blue' ? 'active' : ''}" data-theme="blue" title="Midnight Navy">🌊</button>
-            <button type="button" class="bbe-theme-swatch swatch-green ${curTheme === 'green' ? 'active' : ''}" data-theme="green" title="Sage Herb">🌿</button>
-            <button type="button" class="bbe-theme-swatch swatch-historical ${curTheme === 'historical' ? 'active' : ''}" data-theme="historical" title="Ancient Manuscript (Historical)">🏛</button>
+            <button type="button" class="bbe-theme-swatch swatch-system ${curTheme === 'system' ? 'active' : ''}" data-theme="system" title="System Default">${BBE_ICONS.themeSystem(13)}</button>
+            <button type="button" class="bbe-theme-swatch swatch-sepia ${curTheme === 'sepia' ? 'active' : ''}" data-theme="sepia" title="Warm Paper (Sepia)">${BBE_ICONS.themeSepia(12)}</button>
+            <button type="button" class="bbe-theme-swatch swatch-light ${curTheme === 'light' ? 'active' : ''}" data-theme="light" title="Clean Light">${BBE_ICONS.themeLight(13)}</button>
+            <button type="button" class="bbe-theme-swatch swatch-dark ${curTheme === 'dark' ? 'active' : ''}" data-theme="dark" title="Night Dark">${BBE_ICONS.themeDark(12)}</button>
+            <button type="button" class="bbe-theme-swatch swatch-oled ${curTheme === 'oled' ? 'active' : ''}" data-theme="oled" title="OLED Pitch Black">${BBE_ICONS.themeOled(13)}</button>
+            <button type="button" class="bbe-theme-swatch swatch-blue ${curTheme === 'blue' ? 'active' : ''}" data-theme="blue" title="Midnight Navy">${BBE_ICONS.themeBlue(13)}</button>
+            <button type="button" class="bbe-theme-swatch swatch-green ${curTheme === 'green' ? 'active' : ''}" data-theme="green" title="Sage Herb">${BBE_ICONS.themeGreen(12)}</button>
+            <button type="button" class="bbe-theme-swatch swatch-historical ${curTheme === 'historical' ? 'active' : ''}" data-theme="historical" title="Ancient Manuscript (Historical)">${BBE_ICONS.themeHistorical(12)}</button>
           </div>
         </div>
 
         <!-- 5. Footer: Retire to Settings -->
         <div class="bbe-popover-footer" style="padding-top:2px;">
           <button type="button" class="bbe-popover-link-btn bbe-retire-aa-btn" id="bbe-retire-aa-btn" title="Permanently retire Aa reader menu to extension settings and remove it from the main pill">
-            ⚙ Retire to Settings (Remove from pill)
+            ${BBE_ICONS.settings(12)}<span>Retire to Settings (Remove from pill)</span>
           </button>
         </div>
       `;
@@ -4570,7 +5562,7 @@
           e.stopPropagation();
           S.showAaMenu = false;
           await bbeSave({ showAaMenu: false });
-          showToast("Aa Reader Menu retired. Restore anytime in Settings (⚙) > Typography & Themes.");
+          showToast("Aa Reader Menu retired. Restore anytime in Settings > Typography & Themes.", { icon: "settings" });
           aaPop.classList.remove("open");
           lastRenderKey = "";
           renderToolbar(p);
@@ -4607,7 +5599,7 @@
 
     // Clean View Toggle (1-click hide/show distractions)
     const isCleanView = S.hideHeader && S.hideSidebar && S.hideDistractionCards && S.hideFooter;
-    rightSec.appendChild(createBtn(isCleanView ? "👁 Clean View On" : "👁 Clean View", "Toggle clean reading view (distraction-free)", async () => {
+    rightSec.appendChild(createBtn(isCleanView ? "Clean View On" : "Clean View", "Toggle clean reading view (distraction-free)", async () => {
       const turnOn = !isCleanView;
       await bbeSave({
         hideHeader: turnOn,
@@ -4617,12 +5609,12 @@
         hideBottomBar: turnOn,
         hideCopyright: turnOn
       });
-    }, isCleanView, true));
+    }, isCleanView, true, BBE_ICONS.eye(13)));
 
     // Settings Button (opens Full Settings page)
-    const settingsBtn = createBtn("⚙ Settings", "Open Deep Bible Settings", () => {
+    const settingsBtn = createBtn("Settings", "Open Deep Bible Settings", () => {
       openExtensionOptionsTab();
-    }, false, true);
+    }, false, true, BBE_ICONS.settings(13));
     settingsBtn.classList.add("bbe-settings-btn");
     rightSec.appendChild(settingsBtn);
 
@@ -4641,13 +5633,14 @@
 
       const isInter = S.compareLayout === "interleaved";
       const layoutToggleBtn = createBtn(
-        isInter ? "📑 Interleaved" : "🏛 Columns",
+        isInter ? "Interleaved" : "Columns",
         "Toggle comparison layout: Columns (whole chapters) vs Interleaved (verse-by-verse)",
         async () => {
           await bbeSave({ compareLayout: isInter ? "columns" : "interleaved" });
         },
         true,
-        true
+        true,
+        isInter ? BBE_ICONS.interleaved(13) : BBE_ICONS.columns(13)
       );
       compRow.appendChild(layoutToggleBtn);
 
@@ -4655,8 +5648,25 @@
       sep.className = "bbe-sep";
       compRow.appendChild(sep);
 
+      const defaultCompareBar = (typeof BBE_ENGLISH_VERSIONS !== "undefined" && BBE_ENGLISH_VERSIONS.length > 0)
+        ? BBE_ENGLISH_VERSIONS
+        : ["ESV", "NIV", "NASB", "NLT", "BSB", "NKJV", "KJV", "CSB", "AMP", "NET", "NRSVUE", "LSB"];
+
+      const activeCompareBarList = (Array.isArray(S.compareBarVersions) && S.compareBarVersions.length > 0)
+        ? S.compareBarVersions.filter(k => allVers[k])
+        : defaultCompareBar.filter(k => allVers[k]);
+
       const selSet = new Set(S.compareVersions || ["NIV", "ESV"]);
-      for (const key of Object.keys(allVers)) {
+
+      // Ensure any currently compared translation stays visible so it can be seen & untoggled
+      const displayCompareBar = [...activeCompareBarList];
+      for (const activeCmpKey of selSet) {
+        if (allVers[activeCmpKey] && !displayCompareBar.includes(activeCmpKey)) {
+          displayCompareBar.push(activeCmpKey);
+        }
+      }
+
+      for (const key of displayCompareBar) {
         const isSelected = selSet.has(key);
         compRow.appendChild(createBtn(
           (isSelected ? "✓ " : "") + key,
@@ -4674,15 +5684,119 @@
           true
         ));
       }
+
+      // Add '+' quick customizer button & popover for Compare Bar translations
+      const compPopWrap = document.createElement("div");
+      compPopWrap.className = "bbe-popover-wrap";
+
+      const compCustomizeBtn = document.createElement("button");
+      compCustomizeBtn.type = "button";
+      compCustomizeBtn.className = "bbe-customize-btn";
+      compCustomizeBtn.textContent = "+";
+      compCustomizeBtn.title = "Customize which translations appear on the Compare bar";
+
+      const sameKeys = (a, b) => a.length === b.length && a.every((k, i) => k === b[i]);
+      const allKeys = Object.keys(allVers);
+      const englishKeys = defaultCompareBar.filter(k => allVers[k]);
+
+      const compPopover = buildGroupedVersionPopover({
+        id: "bbe-compare-versions-popover",
+        title: "Compare Bar",
+        allVers,
+        selectedKeys: activeCompareBarList,
+        minSelected: 1,
+        wasOtherOpen: wasCompareOtherOpen,
+        presets: [
+          {
+            label: "English",
+            title: "Show English translations only",
+            active: sameKeys(activeCompareBarList, englishKeys),
+            onClick: async () => {
+              await bbeSave({ compareBarVersions: englishKeys });
+            }
+          },
+          {
+            label: "Match Top",
+            title: "Match the translations shown on the top pill",
+            active: sameKeys(activeCompareBarList, activeToolbarList),
+            onClick: async () => {
+              await bbeSave({ compareBarVersions: [...activeToolbarList] });
+            }
+          },
+          {
+            label: "All",
+            title: "Show all available translations",
+            active: sameKeys(activeCompareBarList, allKeys),
+            onClick: async () => {
+              await bbeSave({ compareBarVersions: allKeys });
+            }
+          }
+        ],
+        onToggle: async (updated) => {
+          await bbeSave({ compareBarVersions: updated });
+        }
+      });
+      if (wasComparePopOpen) {
+        compPopover.classList.add("open");
+      }
+
+      compCustomizeBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        document.querySelectorAll(".bbe-versions-popover.open").forEach(other => {
+          if (other !== compPopover) other.classList.remove("open");
+        });
+        compPopover.classList.toggle("open");
+        clampPopoverPosition(compPopover);
+      });
+
+      compPopWrap.appendChild(compCustomizeBtn);
+      compPopWrap.appendChild(compPopover);
+      compRow.appendChild(compPopWrap);
+
       bar.appendChild(compRow);
     }
 
     fitBarWidth();
+
+    // Keep any restored open popover cleanly inside the viewport
+    bar.querySelectorAll(".bbe-versions-popover.open").forEach(pop => clampPopoverPosition(pop));
+  }
+
+  let barParentObserver = null;
+  let observedBarParent = null;
+  let lastObservedParentW = -1;
+  let barFitRaf = 0;
+
+  function ensureBarParentObserver(bar) {
+    const parent = bar && bar.parentElement;
+    if (!parent || typeof ResizeObserver === "undefined") return;
+    if (observedBarParent === parent && barParentObserver) return;
+
+    if (barParentObserver) {
+      barParentObserver.disconnect();
+    }
+    observedBarParent = parent;
+    lastObservedParentW = parent.clientWidth;
+    barParentObserver = new ResizeObserver(() => {
+      if (!observedBarParent) return;
+      const w = observedBarParent.clientWidth;
+      if (w === lastObservedParentW) return;
+      lastObservedParentW = w;
+      if (barFitRaf) cancelAnimationFrame(barFitRaf);
+      barFitRaf = requestAnimationFrame(() => {
+        barFitRaf = 0;
+        fitBarWidth();
+      });
+    });
+    barParentObserver.observe(parent);
   }
 
   function fitBarWidth() {
     const bar = document.getElementById("bbe-bar");
     if (!bar) return;
+
+    ensureBarParentObserver(bar);
 
     // Reset inline max-width to allow accurate measurement of natural content widths
     bar.style.maxWidth = "min(97vw, 1400px)";
@@ -4700,7 +5814,16 @@
     const toolsW = toolsSec.offsetWidth;
 
     const singleLineWidth = passageW + gap + versionsW + gap + toolsW + pad;
-    const maxAvailable = window.innerWidth * 0.97;
+    const viewportAvailable = Math.min(window.innerWidth * 0.97, 1400);
+    let maxAvailable = viewportAvailable;
+    const parent = bar.parentElement;
+    if (parent && parent.clientWidth > 0) {
+      const cs = getComputedStyle(parent);
+      const parentInnerW = parent.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+      if (parentInnerW > 0) {
+        maxAvailable = Math.min(viewportAvailable, parentInnerW);
+      }
+    }
 
     const compRow = bar.querySelector("#bbe-compare-options");
     const compW = compRow ? (compRow.scrollWidth + pad) : 0;
@@ -4726,7 +5849,7 @@
   function removeCompare() {
     document.getElementById("bbe-compare-grid")?.remove();
     html.classList.remove("bbe-compare-active");
-    const origChapter = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const origChapter = getChapterEl();
     if (origChapter) origChapter.style.display = "";
   }
 
@@ -4755,19 +5878,38 @@
     return map;
   }
 
+  function appendGroupedSelectOptions(select, allVers, { currentKey = null, excludeKeys = [], prefix = "" } = {}) {
+    const groups = bbeGroupVersions(allVers, S.userTranslations);
+    const excludeSet = new Set(excludeKeys);
+    const sections = [
+      { label: "English", keys: groups.english },
+      { label: "Custom", keys: groups.custom },
+      { label: "Other Languages", keys: groups.other }
+    ];
+    for (const sec of sections) {
+      const visibleKeys = sec.keys.filter(k => allVers[k] && !excludeSet.has(k));
+      if (visibleKeys.length === 0) continue;
+      const og = document.createElement("optgroup");
+      og.label = sec.label;
+      for (const key of visibleKeys) {
+        const v = allVers[key];
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = prefix ? `${prefix}${key} (${v.name})` : `${key} — ${v.name}`;
+        if (currentKey && key === currentKey) opt.selected = true;
+        og.appendChild(opt);
+      }
+      select.appendChild(og);
+    }
+  }
+
   function createCompareVersionSelect(currentKey, onSelectVersion) {
     const allVers = getAllVersions();
     const select = document.createElement("select");
     select.className = "bbe-compare-version-dropdown";
     select.title = "Switch translation for this slot";
 
-    for (const [key, v] of Object.entries(allVers)) {
-      const opt = document.createElement("option");
-      opt.value = key;
-      opt.textContent = `${key} — ${v.name}`;
-      if (key === currentKey) opt.selected = true;
-      select.appendChild(opt);
-    }
+    appendGroupedSelectOptions(select, allVers, { currentKey });
 
     select.addEventListener("change", (e) => {
       e.stopPropagation();
@@ -4789,13 +5931,7 @@
     defaultOpt.selected = true;
     select.appendChild(defaultOpt);
 
-    for (const [key, v] of Object.entries(allVers)) {
-      if (currentVersions.includes(key)) continue;
-      const opt = document.createElement("option");
-      opt.value = key;
-      opt.textContent = `+ ${key} (${v.name})`;
-      select.appendChild(opt);
-    }
+    appendGroupedSelectOptions(select, allVers, { excludeKeys: currentVersions, prefix: "+ " });
 
     select.addEventListener("change", (e) => {
       e.stopPropagation();
@@ -4816,7 +5952,7 @@
       if (chapterEl && chapterEl.parentElement) {
         chapterEl.parentElement.insertBefore(grid, chapterEl);
       } else {
-        const reader = document.querySelector('[class*="_yv-bible-text"]') || document.querySelector('main');
+        const reader = getTextEl() || document.querySelector('main');
         if (reader) reader.appendChild(grid);
       }
     }
@@ -4829,7 +5965,7 @@
 
     grid.replaceChildren();
 
-    const origChapter = document.querySelector('[class*="_chapter"]:not(#bbe-compare-grid *)');
+    const origChapter = getChapterEl();
     if (origChapter) origChapter.style.display = "none";
 
     // 1. Top Control Bar (Layout Toggle + Add Version + Close)
@@ -4852,7 +5988,7 @@
     const colsBtn = document.createElement("button");
     colsBtn.type = "button";
     colsBtn.className = "bbe-layout-toggle-btn" + (!isInterleaved ? " active" : "");
-    colsBtn.innerHTML = `<span>🏛</span> Columns`;
+    colsBtn.innerHTML = `${BBE_ICONS.columns(13)}<span>Columns</span>`;
     colsBtn.title = "Side-by-side whole chapters comparison";
     colsBtn.addEventListener("click", async () => {
       if (S.compareLayout !== "columns") {
@@ -4863,7 +5999,7 @@
     const interBtn = document.createElement("button");
     interBtn.type = "button";
     interBtn.className = "bbe-layout-toggle-btn" + (isInterleaved ? " active" : "");
-    interBtn.innerHTML = `<span>📑</span> Interleaved`;
+    interBtn.innerHTML = `${BBE_ICONS.interleaved(13)}<span>Interleaved</span>`;
     interBtn.title = "Verse-by-verse parallel comparison";
     interBtn.addEventListener("click", async () => {
       if (S.compareLayout !== "interleaved") {
@@ -4916,6 +6052,8 @@
       const v = allVers[key];
       const col = document.createElement("section");
       col.className = "bbe-compare-col";
+      col.dataset.versionKey = key;
+      col.dataset.versionId = String(v.id);
 
       // Sticky Column Header
       const header = document.createElement("div");
@@ -4964,18 +6102,35 @@
 
       colsGrid.appendChild(col);
 
-      // Render content
+      // Render content immediately when ready & paint per-version cloud highlights asynchronously
+      const chapterUsfm = `${p.book}.${p.chapter}`;
       if (v.id === p.id && origChapter && (!p.verses || origChapter.dataset.bbeFiltered === "1")) {
         body.replaceChildren(origChapter.cloneNode(true));
         const cloned = body.querySelector('[class*="_chapter"]');
         if (cloned) cloned.style.display = "";
+        fetchCloudHighlightsForChapter(chapterUsfm, v.id, false).then((hlList) => {
+          if (!body.isConnected) return;
+          if (hlList && hlList.length) bbePaintHighlightsInScope(body, hlList);
+          col.dataset.bbeHlLoaded = "1";
+          scheduleHlRefresh();
+        });
       } else {
+        const hlPromise = fetchCloudHighlightsForChapter(chapterUsfm, v.id, false);
         fetchPassageHtml(key, p)
-          .then((chapterHtml) => {
+          .then((chapterRes) => {
+            if (!body.isConnected) return;
+            const chapterHtml = (chapterRes && typeof chapterRes.html === "string") ? chapterRes.html : String(chapterRes);
             const temp = document.createElement("div");
             temp.className = "cat7xG_chapter";
             temp.innerHTML = chapterHtml;
             body.replaceChildren(temp);
+            scheduleHlRefresh();
+            hlPromise.then((hlList) => {
+              if (!body.isConnected) return;
+              if (hlList && hlList.length) bbePaintHighlightsInScope(body, hlList);
+              col.dataset.bbeHlLoaded = "1";
+              scheduleHlRefresh();
+            });
           })
           .catch((err) => {
             loading.textContent = `Could not load ${key} (${err.message})`;
@@ -4984,6 +6139,118 @@
     }
 
     container.appendChild(colsGrid);
+
+    // ---- Copy & Cloud-Sync highlights between visible translations ----
+    const HL_RGB_TO_ID = {
+      "255, 254, 0": "fffe00", "254, 241, 0": "fffe00", "253, 239, 197": "fffe00",
+      "93, 255, 121": "5dff79", "217, 233, 206": "5dff79",
+      "0, 214, 255": "00d6ff", "186, 221, 255": "00d6ff",
+      "255, 198, 111": "ffc66f", "252, 215, 182": "ffc66f",
+      "255, 149, 239": "ff95ef", "245, 200, 214": "ff95ef"
+    };
+    const HL_ID_TO_BG = { fffe00: "#fdefc5", fef100: "#fdefc5", "5dff79": "#d9e9ce", "00d6ff": "#baddff", ffc66f: "#fcd7b6", ff95ef: "#f5c8d6" };
+
+    const hlIdOfEl = (el) => {
+      const tagged = el.getAttribute("data-bbe-temp-hl");
+      if (tagged && HL_ID_TO_BG[tagged]) return tagged === "fef100" ? "fffe00" : tagged;
+      const st = (el.getAttribute("style") || "").toLowerCase();
+      for (const [rgb, id] of Object.entries(HL_RGB_TO_ID)) if (st.includes(rgb) || st.includes(id)) return id;
+      return null;
+    };
+
+    // verse number -> highlight id, for one column
+    const readColumnHighlights = (col) => {
+      const map = {};
+      col.querySelectorAll('[data-usfm]').forEach((vEl) => {
+        const nums = extractUsfmVerseNums(vEl.getAttribute("data-usfm") || "");
+        if (!nums.length) return;
+        let id = hlIdOfEl(vEl);
+        if (!id) {
+          for (const d of vEl.querySelectorAll("[style], [data-bbe-temp-hl]")) { id = hlIdOfEl(d); if (id) break; }
+        }
+        if (id) nums.forEach((n) => { map[n] = id; });
+      });
+      return map;
+    };
+
+    const applyHighlightsToColumn = (col, map) => {
+      col.querySelectorAll('[data-usfm]').forEach((vEl) => {
+        const nums = extractUsfmVerseNums(vEl.getAttribute("data-usfm") || "");
+        const id = nums.map((n) => map[n]).find(Boolean);
+        if (!id) return;
+        let contentEls = Array.from(vEl.querySelectorAll('.content, [class*="_content"]'));
+        contentEls = contentEls.filter((c) => !contentEls.some((o) => o !== c && o.contains(c)));
+        const targets = contentEls.length ? contentEls : [vEl];
+        targets.forEach((t) => {
+          t.style.backgroundColor = HL_ID_TO_BG[id];
+          t.setAttribute("data-bbe-temp-hl", id);
+        });
+      });
+    };
+
+    const HL_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l-5 5v4h4l5-5"/><path d="M14 6l4 4"/><path d="M12 8l5-5 4 4-5 5z"/></svg>';
+    let hlTimer = null;
+    // Per-column "copy highlights from this version" buttons (source picker)
+    function refreshCopyHlBtn() {
+      const cols = Array.from(colsGrid.querySelectorAll(".bbe-compare-col"));
+      const states = cols.map((c) => ({
+        c,
+        vid: parseInt(c.dataset.versionId, 10) || 0,
+        vkey: c.dataset.versionKey || "",
+        map: readColumnHighlights(c),
+        loaded: !!c.querySelector("[data-usfm]")
+      }));
+      states.forEach((s) => {
+        const actions = s.c.querySelector(".bbe-compare-header");
+        if (!actions) return;
+        let btn = s.c.querySelector(".bbe-copy-hl-from-btn");
+        const others = states.filter((o) => o !== s && o.loaded);
+        const differs = others.some((o) => Object.keys(s.map).some((n) => s.map[n] !== o.map[n]));
+        if (!s.loaded || !Object.keys(s.map).length || !differs) { btn?.remove(); return; }
+        if (!btn) {
+          btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "bbe-col-btn bbe-copy-hl-from-btn";
+          btn.innerHTML = `${HL_ICON}<span style="margin-left:4px">Copy highlights to other versions</span>`;
+          btn.style.cssText = "display:inline-flex;align-items:center;white-space:nowrap;";
+          btn.title = `Copy and save ${s.vkey} highlights to the other visible translations on Bible.com`;
+          btn.addEventListener("click", async () => {
+            const srcMap = readColumnHighlights(s.c);
+            const otherCols = Array.from(colsGrid.querySelectorAll(".bbe-compare-col")).filter((c) => c !== s.c);
+            otherCols.forEach((c) => applyHighlightsToColumn(c, srcMap));
+            refreshCopyHlBtn();
+
+            // Group verses by color and persist to Bible.com for all other visible versions
+            const byColor = {};
+            Object.entries(srcMap).forEach(([vNum, colorId]) => {
+              if (!byColor[colorId]) byColor[colorId] = [];
+              byColor[colorId].push(`${p.book}.${p.chapter}.${vNum}`);
+            });
+            const items = Object.entries(byColor).map(([color, usfms]) => ({ color, usfms }));
+            const targetVids = otherCols.map((c) => parseInt(c.dataset.versionId, 10)).filter(Boolean);
+            // If the page's base version is one of the target versions, also paint the hidden origChapter
+            if (origChapter && targetVids.includes(p.id)) {
+              applyHighlightsToColumn(origChapter, srcMap);
+            }
+            if (items.length && targetVids.length) {
+              const res = await batchSaveCloudHighlights(items, targetVids);
+              if (res && res.success) {
+                showToast(`Synced ${s.vkey} highlights to ${otherCols.map(c => c.dataset.versionKey).join(", ")} on Bible.com`);
+              } else if (res && res.isTemporary) {
+                showTemporaryHighlightBanner(`${BBE_BOOK_NAMES[p.book] || p.book} ${p.chapter}`);
+              } else {
+                showToast(`Not saved: ${res?.error || "Cloud sync failed"}`, 4500);
+              }
+            }
+          });
+          const acts = s.c.querySelector(".bbe-col-actions");
+          if (acts) acts.insertBefore(btn, acts.firstChild); else actions.appendChild(btn);
+        }
+      });
+    }
+    function scheduleHlRefresh() { clearTimeout(hlTimer); hlTimer = setTimeout(refreshCopyHlBtn, 250); }
+    new MutationObserver(scheduleHlRefresh).observe(colsGrid, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "data-bbe-temp-hl"] });
+    scheduleHlRefresh();
 
     // Synchronized cross-column verse hover highlighting
     let activeSyncEls = [];
@@ -5121,47 +6388,22 @@
 
         const left = document.createElement("div");
         left.className = "bbe-interleaved-vnum";
-        left.innerHTML = `<span>📖 Verse ${verseNum}</span> <span class="bbe-interleaved-pill">${p.book} ${p.chapter}:${verseNum}</span>`;
+        left.innerHTML = `<span>Verse ${verseNum}</span> <span class="bbe-interleaved-pill">${p.book} ${p.chapter}:${verseNum}</span>`;
         header.appendChild(left);
 
         const actions = document.createElement("div");
         actions.className = "bbe-interleaved-actions";
 
-        // Copy Comparison button
-        const copyCompBtn = document.createElement("button");
-        copyCompBtn.type = "button";
-        copyCompBtn.className = "bbe-interleaved-action-btn";
-        copyCompBtn.innerHTML = `<span>📋</span> Copy Comparison`;
-        copyCompBtn.title = "Copy this verse across all compared translations";
-        copyCompBtn.addEventListener("click", async () => {
-          const lines = [
-            `${p.book} ${p.chapter}:${verseNum} Comparison:`
-          ];
-          for (const k of versions) {
-            const vText = verseMaps[k]?.[verseNum] || "(omitted)";
-            lines.push(`[${k}] ${vText}`);
-          }
-          const textToCopy = lines.join("\n");
-          try {
-            await navigator.clipboard.writeText(textToCopy);
-            copyCompBtn.innerHTML = `<span>✓</span> Copied!`;
-            setTimeout(() => {
-              copyCompBtn.innerHTML = `<span>📋</span> Copy Comparison`;
-            }, 1800);
-          } catch (e) {
-            showToast("Failed to copy comparison text.");
-          }
-        });
-        actions.appendChild(copyCompBtn);
+
 
         // Study Drawer button
         const studyBtn = document.createElement("button");
         studyBtn.type = "button";
         studyBtn.className = "bbe-interleaved-action-btn";
-        studyBtn.innerHTML = `<span>💬</span> Study`;
+        studyBtn.innerHTML = `${BBE_ICONS.book(12)}<span>Study</span>`;
         studyBtn.title = `Study: Open commentary and cross-references for Verse ${verseNum}`;
         studyBtn.addEventListener("click", () => {
-          openCommentaryDrawer(p.book, p.chapter, verseNum, S.defaultStudyTab || "commentary");
+          openCommentaryDrawer(p.book, p.chapter, verseNum, S.defaultStudyTab || "commentary", null, { explicitVerse: true });
         });
         actions.appendChild(studyBtn);
 
@@ -5183,29 +6425,13 @@
           cellHeader.className = "bbe-interleaved-cell-header";
 
           const vtag = document.createElement("span");
-          vtag.className = "bbe-interleaved-cell-vtag";
+          vtag.className = "bbe-interleaved-cell-vtag notranslate";
+          vtag.setAttribute("translate", "no");
           vtag.textContent = key;
           vtag.title = allVers[key]?.name || key;
           cellHeader.appendChild(vtag);
 
-          const copySingleBtn = document.createElement("button");
-          copySingleBtn.type = "button";
-          copySingleBtn.className = "bbe-col-btn";
-          copySingleBtn.innerHTML = `📋 Copy`;
-          copySingleBtn.title = `Copy ${key} text for verse ${verseNum}`;
-          copySingleBtn.addEventListener("click", async () => {
-            const vText = verseMaps[key]?.[verseNum] || "";
-            if (!vText) return;
-            const formatted = formatVerseCopy(vText, p.book, p.chapter, verseNum, verseNum, key);
-            try {
-              await navigator.clipboard.writeText(formatted);
-              copySingleBtn.textContent = `✓ Copied!`;
-              setTimeout(() => {
-                copySingleBtn.innerHTML = `📋 Copy`;
-              }, 1600);
-            } catch (err) {}
-          });
-          cellHeader.appendChild(copySingleBtn);
+
           cell.appendChild(cellHeader);
 
           // Verse text
@@ -5247,34 +6473,72 @@
   }
 
   /* ---------------- Main Lifecycle Loop ---------------- */
+  let lifecycleObserver = null;
+  let lastDomSig = "";
+
+  function getDomSig(p) {
+    const chapterEl = getChapterEl();
+    const nativeReader = getNativeReaderEl();
+    const yv = nativeReader || document.querySelector('#bbe-verse-page-reader [class*="_yv-bible-text"]');
+    const readerH1 = (nativeReader ? nativeReader.querySelector('[class*="_reader"] h1') : null) ||
+                     document.getElementById("bbe-verse-reader-h1");
+    const barOk = S.hideSwitcher ? !document.getElementById("bbe-bar") : !!document.getElementById("bbe-bar");
+    const compareOk = S.compareOn ? !!document.getElementById("bbe-compare-grid") : !document.getElementById("bbe-compare-grid");
+    const fullChapBarOk = !p.verses || !!document.getElementById("bbe-full-chapter-bar");
+    const histOk = S.readerTheme !== "historical" || !!document.getElementById("bbe-hist-backdrop");
+    // Historical theme: parchment must be present on the reader wrapper and the compare grid (if any)
+    let parchOk = true;
+    if (S.enabled && S.readerTheme === "historical" && window.BBE_HIST) {
+      const wantParch = S.historicalParchment || "scroll";
+      const gridEl = document.getElementById("bbe-compare-grid");
+      const yvParent = yv ? yv.parentElement : null;
+      parchOk = (!gridEl || gridEl.dataset.bbeParch === wantParch) &&
+                (!yvParent || yvParent.dataset.bbeParch === wantParch);
+    }
+
+    return [
+      html.classList.contains("bbe-on") ? 1 : 0,
+      nativeReader ? 1 : 0,
+      yv?.parentElement?.style?.maxWidth || "",
+      readerH1?.textContent || "",
+      chapterEl ? 1 : 0,
+      chapterEl?.dataset?.bbeBound || "",
+      chapterEl?.dataset?.bbePassageKey || "",
+      chapterEl?.dataset?.bbeLoadingKey || "",
+      chapterEl?.dataset?.bbeFiltered || "",
+      S.wordStudyMode ? (chapterEl?.dataset?.bbeWordStudyBound || "") : "",
+      barOk ? 1 : 0,
+      compareOk ? 1 : 0,
+      fullChapBarOk ? 1 : 0,
+      histOk ? 1 : 0,
+      parchOk ? 1 : 0
+    ].join("|");
+  }
+
+  function flushLifecycleRecords() {
+    invalidateDomCaches();
+    if (lifecycleObserver) lifecycleObserver.takeRecords();
+  }
+
   function tick() {
     if (!document.body) return;
+    invalidateDomCaches(); // one fresh query per render pass, shared by every helper below
 
     const allVers = getAllVersions();
     const p = bbeParsePath(location.pathname, allVers);
     if (!S.enabled || !p) {
+      if (window.BBE_SERMON && window.BBE_SERMON.isActive()) {
+        window.BBE_SERMON.deactivate(true);
+      }
       ensureVersePageReader(null);
       syncDomClasses();
       document.getElementById("bbe-bar")?.remove();
       removeCompare();
       lastRenderKey = "";
+      lastCompareKey = "";
+      lastDomSig = "";
+      flushLifecycleRecords();
       return;
-    }
-
-    // Ensure single-verse & verse-segment pages have the full Deep Bible reader structure
-    ensureVersePageReader(p);
-    syncDomClasses();
-
-    // Trigger background preloading for instant swapping
-    preloadOtherVersions(p);
-    preloadAdjacentChapters(p);
-
-    // Render unobtrusive commentary badges next to verse numbers
-    renderVerseBadges(p);
-
-    // Enhance verses for Strong's Word Study if active
-    if (S.wordStudyMode) {
-      enhanceVersesForWordStudy(p);
     }
 
     const stateKey = [
@@ -5288,7 +6552,6 @@
       S.commentaryDock,
       S.toolbarBehavior,
       S.autoDimBar,
-      isBarHidden,
       S.wordStudyMode,
       S.wordStudyTrigger,
       S.smartVerseCopy,
@@ -5308,36 +6571,148 @@
       S.compareOn,
       S.compareLayout,
       (S.compareVersions || []).join(),
+      (S.compareBarVersions || []).join(),
       S.youversionHighlighting,
       S.showVerseHighlightBadges,
-      S.defaultHighlightColor
+      S.defaultHighlightColor,
+      S.hideHeader,
+      S.hideSidebar,
+      S.hideDistractionCards,
+      S.hideFooter,
+      S.hideBottomBar,
+      S.hideFootnotes,
+      S.hideHeadings,
+      S.hideVerseNumbers,
+      S.hideCopyright,
+      S.historicalScene,
+      S.historicalParchment,
+      S.historicalInk,
+      S.historicalRubrics,
+      S.historicalOrnate,
+      S.historicalSceneDim,
+      S.prefetchTranslations,
+      S.preloadAdjacentChapters,
+      S.showSermonBtn,
+      S.sermonExpandSpacing,
+      S.sermonSaveMode,
+      S.sermonMaxSaved,
+      Boolean(window.BBE_SERMON && window.BBE_SERMON.isActive())
     ].join("|");
 
-    const barExists = !!document.getElementById("bbe-bar");
-    const compareExists = !S.compareOn || !!document.getElementById("bbe-compare-grid");
-
-    if (stateKey === lastRenderKey && barExists && compareExists) {
+    const curDomSig = getDomSig(p);
+    if (stateKey === lastRenderKey && curDomSig === lastDomSig) {
+      flushLifecycleRecords();
       return;
     }
 
-    lastRenderKey = stateKey;
-    renderToolbar(p);
+    // Ensure single-verse & verse-segment pages have the full Deep Bible reader structure
+    ensureVersePageReader(p);
+    syncDomClasses();
 
-    if (S.compareOn) {
-      renderCompare(p);
-    } else {
-      removeCompare();
+    // Trigger background preloading for instant swapping
+    preloadOtherVersions(p);
+    preloadAdjacentChapters(p);
+
+    // Render unobtrusive commentary badges next to verse numbers
+    renderVerseBadges(p);
+
+    // Enhance verses for Strong's Word Study if active
+    if (S.wordStudyMode) {
+      enhanceVersesForWordStudy(p);
     }
+
+    const barOk = S.hideSwitcher ? !document.getElementById("bbe-bar") : !!document.getElementById("bbe-bar");
+    const compareOk = S.compareOn ? !!document.getElementById("bbe-compare-grid") : !document.getElementById("bbe-compare-grid");
+    const compareStateKey = [
+      location.pathname,
+      S.compareOn,
+      S.compareLayout,
+      (S.compareVersions || []).join(),
+      JSON.stringify(S.userTranslations || {}),
+      getChapterEl()?.dataset?.bbePassageKey || ""
+    ].join("|");
+
+    if (stateKey !== lastRenderKey || !barOk || !compareOk) {
+      lastRenderKey = stateKey;
+      renderToolbar(p);
+    }
+
+    if (compareStateKey !== lastCompareKey || !compareOk) {
+      lastCompareKey = compareStateKey;
+      if (S.compareOn) {
+        renderCompare(p);
+      } else {
+        removeCompare();
+      }
+    }
+
+    // Historical theme: re-apply parchment now that the compare grid / toolbar exist (old polling did this on the next tick)
+    if (S.enabled && S.readerTheme === "historical") syncDomClasses();
+
+    // Sermon Mode: enforce Compare Mode exclusion or sync active Sermon overlay
+    if (S.compareOn) {
+      if (window.BBE_SERMON && window.BBE_SERMON.isActive()) {
+        window.BBE_SERMON.deactivate(true);
+        showToast("Sermon Mode closed for Compare view", { icon: "sermon" });
+      }
+    } else if (window.BBE_SERMON && window.BBE_SERMON.isActive()) {
+      window.BBE_SERMON.onPassageOrLayoutChange();
+    } else if (!window.BBE_SERMON) {
+      try {
+        if (sessionStorage.getItem("bbe_sermon_active") === "1") {
+          ensureSermonModeLoaded().then((sm) => {
+            if (sm && !sm.isActive() && !S.compareOn) sm.activate();
+          });
+        }
+      } catch (_) {}
+    }
+
+    lastDomSig = getDomSig(p);
+    flushLifecycleRecords();
   }
 
   /* ---------------- Immediate SPA Navigation Hooks ---------------- */
   let lastObservedUrl = location.href;
+  let lastObservedPathname = location.pathname;
+
+  function syncOpenDrawerToPassageChange(prevPath, nextPath) {
+    if (!isDrawerOpen) return;
+    const allVers = getAllVersions();
+    const prevP = bbeParsePath(prevPath, allVers);
+    const nextP = bbeParsePath(nextPath, allVers);
+    if (!nextP) {
+      closeCommentaryDrawer();
+      return;
+    }
+    const prevPassageKey = prevP ? `${prevP.book}|${prevP.chapter}|${prevP.verses || ""}` : "";
+    const nextPassageKey = `${nextP.book}|${nextP.chapter}|${nextP.verses || ""}`;
+    if (nextPassageKey !== prevPassageKey) {
+      const urlSpec = nextP.verses ? parseVerseRangeSpec(nextP.verses) : null;
+      const targetVerse = urlSpec ? urlSpec.min : 1;
+      openCommentaryDrawer(nextP.book, nextP.chapter, targetVerse);
+    } else if (
+      prevP &&
+      (prevP.id !== nextP.id || prevP.abbr !== nextP.abbr) &&
+      currentDrawerPassage.book === nextP.book &&
+      currentDrawerPassage.chapter === String(nextP.chapter)
+    ) {
+      updateDrawerPreview(currentDrawerPassage.book, currentDrawerPassage.chapter, currentDrawerPassage.verse || 1, nextP);
+    }
+  }
+
   function handleUrlChange() {
     if (location.href !== lastObservedUrl) {
+      const prevPath = lastObservedPathname;
       lastObservedUrl = location.href;
+      lastObservedPathname = location.pathname;
+      if (!isBottomDrawerActive() && residualClearanceActive) {
+        residualClearanceActive = false;
+        setDrawerClearancePx(0);
+      }
       lastRenderKey = "";
       cancelPreloading();
       tick();
+      syncOpenDrawerToPassageChange(prevPath, location.pathname);
     }
   }
 
@@ -5359,17 +6734,73 @@
     handleUrlChange();
   });
 
-  syncDomClasses();
-  const initP = bbeParsePath(location.pathname, getAllVersions());
-  if (initP) {
-    renderVerseBadges(initP);
-  }
+  if (!document.body) syncDomClasses();
   tick();
 
-  // Relaxed idle safety net: event-driven via history hooks + 1500ms fallback (paused when tab hidden)
-  setInterval(() => {
-    if (document.hidden) return;
-    handleUrlChange();
-    tick();
-  }, 1500);
+  // Event-driven lifecycle (replaces the old 1500ms polling loop).
+  // NOTE: content scripts live in an isolated world, so the history hooks above do NOT see the
+  // page's own (Next.js) pushState calls. SPA navigation and React re-renders always mutate the
+  // DOM, so a debounced MutationObserver detects them and re-runs the same URL check + tick().
+  let lifecycleTimer = null;
+  function scheduleLifecycle() {
+    if (lifecycleTimer) return;
+    lifecycleTimer = setTimeout(() => {
+      lifecycleTimer = null;
+      if (document.hidden) return; // visibilitychange re-syncs when the tab returns
+      handleUrlChange();
+      tick();
+    }, 250);
+  }
+  // Expose for toolbar show/hide (isBarHidden is part of tick's render key, which polling used to pick up)
+  window.__bbeScheduleLifecycle = scheduleLifecycle;
+
+  const MANAGED_ROOT_IDS = new Set([
+    "bbe-bar",
+    "bbe-compare-grid",
+    "bbe-full-chapter-bar",
+    "bbe-verse-page-reader",
+    "bbe-hist-backdrop"
+  ]);
+
+  function isInOwnContainer(el) {
+    return !!(el && el.nodeType === 1 && el.closest && el.closest('[id^="bbe-"]'));
+  }
+
+  function isOwnNode(n, target) {
+    if (isInOwnContainer(target)) return true;
+    if (!n) return false;
+    if (n.nodeType === 1) {
+      if (n === document.body || n === document.documentElement) return false;
+      if ((n.id && n.id.startsWith("bbe-")) ||
+          (typeof n.className === "string" && n.className.indexOf("bbe-") !== -1)) {
+        return true;
+      }
+      return isInOwnContainer(n);
+    }
+    return isInOwnContainer(n.parentElement);
+  }
+
+  lifecycleObserver = new MutationObserver((records) => {
+    for (const r of records) {
+      if (!r.target || !r.target.isConnected || isInOwnContainer(r.target)) continue;
+      let foreign = false;
+      for (const n of r.addedNodes) { if (!isOwnNode(n, r.target)) { foreign = true; break; } }
+      if (!foreign) {
+        for (const n of r.removedNodes) {
+          if ((n.nodeType === 1 && MANAGED_ROOT_IDS.has(n.id)) || !isOwnNode(n, r.target)) {
+            foreign = true;
+            break;
+          }
+        }
+      }
+      if (foreign) { invalidateDomCaches(); scheduleLifecycle(); return; } // page DOM changed: drop cached queries
+    }
+    // Any record whose only changes were our own nodes is ignored
+  });
+  lifecycleObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) scheduleLifecycle();
+  });
+  window.addEventListener("focus", scheduleLifecycle);
 })();

@@ -40,6 +40,7 @@ var BBE_DEFAULTS = {
   toolbarVersions: ["ESV", "NIV", "NASB", "NLT", "BSB", "NKJV", "KJV"], // Translations shown in top pill
   compareOn: false,         // Side-by-side translation comparison
   compareVersions: ["NIV", "ESV"],
+  compareBarVersions: ["ESV", "NIV", "NASB", "NLT", "BSB", "NKJV", "KJV", "CSB", "AMP", "NET", "NRSVUE", "LSB"], // Translations shown in Compare sub-bar (English by default)
   compareLayout: "columns", // "columns" (Side-by-side whole chapters) | "interleaved" (Verse-by-verse parallel comparison)
   defaultStudyTab: "commentary", // "commentary" | "crossref" | "wordstudy"
   commentaryDock: "bottom",  // "bottom" (Logos style, default) | "right" (Sidebar)
@@ -52,6 +53,10 @@ var BBE_DEFAULTS = {
   commentaryOrder: [],       // Preferred display order of commentary keys (empty = default order)
   wordStudyMode: false,      // Strong's Greek & Hebrew Lexicon / Word Study mode
   wordStudyTrigger: "hover", // "hover" (Hover or click) | "click" (Click only)
+  showSermonBtn: true,       // Show "✏ Sermon" markup button on the floating study bar
+  sermonExpandSpacing: true, // Auto-expand line spacing & side margins when Sermon Mode is active
+  sermonSaveMode: "fifo",    // "fifo" (Auto-keep most recent) | "prompt" (Ask when full) | "manual" (Manual Save button only)
+  sermonMaxSaved: 5,         // Max saved chapters in Sermon Mode: 5 (default) | 10 | 20 | 40
   smartVerseCopy: true,          // Smart Verse Copy on hover, selection, or verse click
   copyCleanSelection: true,      // Automatically clean highlighted text on Ctrl+C (strip verse numbers & headings)
   copyIncludeReference: false,   // Append scripture reference (e.g. Genesis 1:1) at end (Default: false)

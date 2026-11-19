@@ -297,9 +297,29 @@
     }
 
     .nav-item .nav-icon {
-      font-size: 15px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       width: 18px;
-      text-align: center;
+      height: 18px;
+      flex-shrink: 0;
+    }
+    .popup-svg-icon {
+      display: inline-block;
+      flex-shrink: 0;
+      vertical-align: middle;
+    }
+    .popup-font-specimen {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 20px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 700;
+      background: var(--primary-light);
+      color: var(--primary);
       flex-shrink: 0;
     }
 
@@ -666,6 +686,76 @@
       border-color: var(--primary);
       color: #ffffff;
       box-shadow: 0 2px 4px rgba(37, 99, 235, 0.25);
+    }
+
+    .version-group-label {
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-top: 10px;
+      margin-bottom: 4px;
+    }
+    .version-group-label:first-child {
+      margin-top: 4px;
+    }
+
+    .version-lang-details {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+
+    .version-lang-summary {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+      list-style: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .version-lang-summary::-webkit-details-marker {
+      display: none;
+    }
+    .version-lang-summary::before {
+      content: "▸";
+      font-size: 10px;
+      transition: transform 0.15s ease;
+      display: inline-block;
+    }
+    .version-lang-details[open] > .version-lang-summary::before {
+      transform: rotate(90deg);
+    }
+    .version-lang-summary:hover {
+      color: var(--primary);
+    }
+
+    .preset-chip-btn {
+      padding: 3px 9px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-full);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .preset-chip-btn:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+      background: var(--primary-light);
+    }
+    .preset-chip-btn.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #ffffff;
     }
 
     /* Shortcuts Table */
@@ -1424,7 +1514,10 @@
         </a>
 
         <a href="welcome/welcome.html" target="_blank" rel="noopener noreferrer" class="link-bible-btn" id="openWelcomeLink" title="Open Welcome Guide & About">
-          <span>👋 Welcome &amp; About</span>
+          <svg class="popup-svg-icon" viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+          </svg>
+          <span>Welcome &amp; About</span>
           <span>↗</span>
         </a>
 
@@ -1450,36 +1543,38 @@
       <aside class="sidebar" id="bbe-sidebar">
         <div class="nav-header">Settings Categories</div>
         <button type="button" class="nav-item active" data-category="shortcuts">
-          <span class="nav-icon">⚡</span>
-          <span>Shortcuts &amp; Swapping</span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+          <span>Shortcuts &amp; Translations</span>
         </button>
         <button type="button" class="nav-item" data-category="typography">
-          <span class="nav-icon">📖</span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3H9a3 3 0 0 1 3 3v14a2.5 2.5 0 0 0-2.5-2.5H4.5A2.5 2.5 0 0 0 2 20V5.5z"/><path d="M22 5.5A2.5 2.5 0 0 0 19.5 3H15a3 3 0 0 0-3 3v14a2.5 2.5 0 0 1 2.5-2.5h5A2.5 2.5 0 0 1 22 20V5.5z"/></svg></span>
           <span>Typography &amp; Themes</span>
         </button>
         <button type="button" class="nav-item" data-category="study">
-          <span class="nav-icon">💬</span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M10 2v8l3-2 3 2V2"/></svg></span>
           <span>Study &amp; Commentaries</span>
         </button>
         <button type="button" class="nav-item" data-category="copy">
-          <span class="nav-icon">📋</span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
           <span>Copy &amp; Clipboard</span>
         </button>
         <button type="button" class="nav-item" data-category="distractions">
-          <span class="nav-icon">👁</span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></span>
           <span>Distraction-Free</span>
         </button>
         <a href="https://chromewebstore.google.com/search/Deep%20Bible%3A%20Study%20Tools%20for%20YouVersion" target="_blank" rel="noopener noreferrer" class="nav-item nav-item-external" id="navRateLink" title="Rate Deep Bible on Chrome Web Store">
-          <span class="nav-icon">⭐</span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>
           <span>Rate Extension ↗</span>
         </a>
 
         <div class="sidebar-footer">
           <a href="welcome/welcome.html" target="_blank" rel="noopener noreferrer" class="reset-btn" style="text-decoration:none;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px;background:var(--primary-light);color:var(--primary);border-color:var(--primary-ring);margin-bottom:8px;" title="Open Welcome Guide & About">
-            <span>👋 Welcome &amp; About ↗</span>
+            <svg class="popup-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+            <span>Welcome &amp; About ↗</span>
           </a>
           <button type="button" id="bbe-reset-defaults-btn" class="reset-btn" title="Restore all original defaults">
-            <span>↺ Reset All Defaults</span>
+            <svg class="popup-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+            <span>Reset All Defaults</span>
           </button>
         </div>
       </aside>
@@ -1490,7 +1585,9 @@
         <!-- ================= PROMINENT REVIEW CTA ================= -->
         <section class="review-cta-card" id="popupReviewBanner" aria-label="Rate Deep Bible on Extension Store">
           <div class="review-cta-left">
-            <div class="review-cta-icon" aria-hidden="true">⭐</div>
+            <div class="review-cta-icon" aria-hidden="true" style="color:#d97706;">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            </div>
             <div class="review-cta-content">
               <div class="review-cta-badge-row">
                 <span class="review-cta-stars" aria-hidden="true">★★★★★</span>
@@ -1504,19 +1601,24 @@
           </div>
           <div class="review-cta-actions">
             <a href="https://chromewebstore.google.com/search/Deep%20Bible%3A%20Study%20Tools%20for%20YouVersion" target="_blank" rel="noopener noreferrer" class="review-btn-primary" id="popupRateBtn" title="Rate Deep Bible on Chrome Web Store">
-              <span>⭐ Rate on Extension Store</span>
+              <svg class="popup-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              <span>Rate on Extension Store</span>
               <span>↗</span>
             </a>
             <a href="https://forms.gle/FN8w2g7MakzTS9GZ9" target="_blank" rel="noopener noreferrer" class="review-btn-secondary" id="popupReviewFeedbackBtn" title="Send suggestions or report bugs">
-              <span>💬 Suggestions &amp; Bugs ↗</span>
+              <svg class="popup-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+              <span>Suggestions &amp; Bugs ↗</span>
             </a>
           </div>
         </section>
 
-        <!-- ================= 1. SHORTCUTS & SWAPPING ================= -->
+        <!-- ================= 1. SHORTCUTS & TRANSLATIONS ================= -->
         <section class="settings-section" data-section="shortcuts">
           <div class="section-title-wrap">
-            <h2 class="section-title">⚡ Shortcuts &amp; Translation Swapping</h2>
+            <h2 class="section-title">
+              <svg class="popup-svg-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              <span>Shortcuts &amp; Translations</span>
+            </h2>
             <p class="section-desc">Instantly swap Bible versions with 0ms delay, preloading, and custom hotkeys.</p>
           </div>
 
@@ -1671,14 +1773,31 @@
             <div class="hint-text" style="margin-bottom:8px;">
               Toggle which translations appear directly in your floating top reading bar:
             </div>
-            <div class="version-pills" id="toolbarVersionPills"></div>
+            <div id="toolbarVersionPills"></div>
+          </div>
+
+          <!-- Compare Sub-Bar Buttons -->
+          <div class="card">
+            <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+              <span>Compare Sub-Bar Translations</span>
+              <span style="display:inline-flex;gap:6px;flex-wrap:wrap;" id="compareBarPresets">
+                <button type="button" class="preset-chip-btn" id="compareBarPresetEnglish" title="Show English translations only">English Only</button>
+                <button type="button" class="preset-chip-btn" id="compareBarPresetMatchTop" title="Match the translations shown on the top pill">Match Top Pill</button>
+                <button type="button" class="preset-chip-btn" id="compareBarPresetAll" title="Show all available translations">All</button>
+              </span>
+            </div>
+            <div class="hint-text" style="margin-bottom:8px;">
+              Choose which translations appear in the Compare sub-menu bar (English translations are shown by default):
+            </div>
+            <div id="compareBarVersionPills"></div>
           </div>
 
           <!-- Optional Power-User Tip: Browser Address Bar Search -->
           <div class="card" style="padding:14px 18px;">
             <details style="cursor:pointer;">
               <summary style="font-weight:600;font-size:12.5px;color:var(--text-muted);user-select:none;display:flex;align-items:center;gap:6px;">
-                <span>💡 Power-User Tip: Address Bar Search Shortcut (Brave / Chrome)</span>
+                <svg class="popup-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                <span>Power-User Tip: Address Bar Search Shortcut (Brave / Chrome)</span>
               </summary>
               <div style="margin-top:10px;font-size:12px;line-height:1.5;color:var(--text-secondary);cursor:default;">
                 <p style="margin:0 0 8px 0;">
@@ -1702,7 +1821,10 @@
         <!-- ================= 2. TYPOGRAPHY & THEMES ================= -->
         <section class="settings-section" data-section="typography" style="display:none;">
           <div class="section-title-wrap">
-            <h2 class="section-title">📖 Typography &amp; Reading Themes</h2>
+            <h2 class="section-title">
+              <svg class="popup-svg-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3H9a3 3 0 0 1 3 3v14a2.5 2.5 0 0 0-2.5-2.5H4.5A2.5 2.5 0 0 0 2 20V5.5z"/><path d="M22 5.5A2.5 2.5 0 0 0 19.5 3H15a3 3 0 0 0-3 3v14a2.5 2.5 0 0 1 2.5-2.5h5A2.5 2.5 0 0 1 22 20V5.5z"/></svg>
+              <span>Typography &amp; Reading Themes</span>
+            </h2>
             <p class="section-desc">Tailor comfortable scripture column widths, fonts, and warm paper themes.</p>
           </div>
 
@@ -1711,42 +1833,69 @@
             <div class="hint-text">Choose your palette. <b>System Default</b> matches Bible.com's native theme. Custom themes (like <b>Warm Paper</b>, <b>Clean Light</b>, or <b>Night Dark</b>) give specialized comfort.</div>
             <div class="popup-card-grid" id="popupThemeGrid">
               <button type="button" class="popup-theme-card system" data-theme="system">
-                <div class="popup-card-title">⚙ System Default</div>
+                <div class="popup-card-title">
+                  <svg class="popup-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18z" fill="currentColor" stroke="none"/></svg>
+                  <span>System Default</span>
+                </div>
                 <div class="popup-card-desc">Bible.com's native appearance.</div>
               </button>
               <button type="button" class="popup-theme-card sepia" data-theme="sepia">
-                <div class="popup-card-title">📜 Warm Paper</div>
+                <div class="popup-card-title">
+                  <svg class="popup-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+                  <span>Warm Paper</span>
+                </div>
                 <div class="popup-card-desc">Soft ivory (#fbf0d9) with charcoal text. High comfort.</div>
               </button>
               <button type="button" class="popup-theme-card light" data-theme="light">
-                <div class="popup-card-title">☀️ Clean Light</div>
+                <div class="popup-card-title">
+                  <svg class="popup-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+                  <span>Clean Light</span>
+                </div>
                 <div class="popup-card-desc">Pure crisp white with clean contrast.</div>
               </button>
               <button type="button" class="popup-theme-card dark" data-theme="dark">
-                <div class="popup-card-title">🌙 Night Dark</div>
+                <div class="popup-card-title">
+                  <svg class="popup-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                  <span>Night Dark</span>
+                </div>
                 <div class="popup-card-desc">Deep slate dark theme for nighttime reading.</div>
               </button>
               <button type="button" class="popup-theme-card oled" data-theme="oled">
-                <div class="popup-card-title">🖤 OLED Pitch Black</div>
+                <div class="popup-card-title">
+                  <svg class="popup-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg>
+                  <span>OLED Pitch Black</span>
+                </div>
                 <div class="popup-card-desc">True #000000 black. Max contrast, zero battery drain.</div>
               </button>
               <button type="button" class="popup-theme-card blue" data-theme="blue">
-                <div class="popup-card-title">🌊 Midnight Navy</div>
+                <div class="popup-card-title">
+                  <svg class="popup-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 10c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/><path d="M2 15c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/></svg>
+                  <span>Midnight Navy</span>
+                </div>
                 <div class="popup-card-desc">Deep ocean navy (#0b1329) with ice-blue text. Serene.</div>
               </button>
               <button type="button" class="popup-theme-card green" data-theme="green">
-                <div class="popup-card-title">🌿 Sage Herb</div>
+                <div class="popup-card-title">
+                  <svg class="popup-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg>
+                  <span>Sage Herb</span>
+                </div>
                 <div class="popup-card-desc">Soothing sage paper (#f0f5ee) with forest text. Anti-fatigue.</div>
               </button>
               <button type="button" class="popup-theme-card historical" data-theme="historical">
-                <div class="popup-card-title">🏛 Historical</div>
+                <div class="popup-card-title">
+                  <svg class="popup-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7"/><path d="M19 21V7"/><path d="M9 21V7"/><path d="M15 21V7"/><path d="M3 7h18l-9-4-9 4z"/></svg>
+                  <span>Historical</span>
+                </div>
                 <div class="popup-card-desc">Ancient scroll on a faded olive grove, library or ruins backdrop.</div>
               </button>
             </div>
           </div>
 
           <div class="card" id="popupHistOptionsCard" style="display:none;">
-            <div class="card-title">🏛 Historical Theme Options</div>
+            <div class="card-title">
+              <svg class="popup-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7"/><path d="M19 21V7"/><path d="M9 21V7"/><path d="M15 21V7"/><path d="M3 7h18l-9-4-9 4z"/></svg>
+              <span>Historical Theme Options</span>
+            </div>
             <div class="hint-text">Compose your own manuscript: choose the world around the page, the material it is written on, and the ink.</div>
 
             <div class="popup-hist-label">Backdrop</div>
@@ -1802,19 +1951,19 @@
             <div class="hint-text">Select a typography style. <b>Classic Book Serif</b> gives Bible reading the feel of a printed Bible.</div>
             <div class="popup-card-grid" id="popupFontGrid">
               <button type="button" class="popup-font-card serif" data-font="serif">
-                <div class="popup-card-title">📖 Classic Book Serif</div>
+                <div class="popup-card-title"><span class="popup-font-specimen">Aa</span><span>Classic Book Serif</span></div>
                 <div class="popup-card-desc">Georgia, Merriweather, Garamond, Bookerly</div>
               </button>
               <button type="button" class="popup-font-card sans" data-font="sans">
-                <div class="popup-card-title">🔤 Modern Sans</div>
+                <div class="popup-card-title"><span class="popup-font-specimen">Aa</span><span>Modern Sans</span></div>
                 <div class="popup-card-desc">Clean, contemporary digital typography (Inter/System)</div>
               </button>
               <button type="button" class="popup-font-card mono" data-font="mono">
-                <div class="popup-card-title">⌨ Warm Monospace</div>
+                <div class="popup-card-title"><span class="popup-font-specimen">Aa</span><span>Warm Monospace</span></div>
                 <div class="popup-card-desc">Structured, editorial typewriter aesthetic</div>
               </button>
               <button type="button" class="popup-font-card dyslexic" data-font="dyslexic">
-                <div class="popup-card-title">👓 Dyslexia Friendly</div>
+                <div class="popup-card-title"><span class="popup-font-specimen">Aa</span><span>Dyslexia Friendly</span></div>
                 <div class="popup-card-desc">OpenDyslexic with weighted baselines to prevent letter flipping</div>
               </button>
             </div>
@@ -1880,7 +2029,10 @@
         <!-- ================= 3. STUDY & COMMENTARIES ================= -->
         <section class="settings-section" data-section="study" style="display:none;">
           <div class="section-title-wrap">
-            <h2 class="section-title">💬 Study Commentaries &amp; Lexicon</h2>
+            <h2 class="section-title">
+              <svg class="popup-svg-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M10 2v8l3-2 3 2V2"/></svg>
+              <span>Study Commentaries &amp; Lexicon</span>
+            </h2>
             <p class="section-desc">Verse-by-verse expository commentaries, Treasury of Scripture Knowledge, and Strong's Hebrew &amp; Greek lexicon.</p>
           </div>
 
@@ -1892,9 +2044,9 @@
                 <div class="hint-text">Active tab when opening verse study drawer (Hotkey: C)</div>
               </div>
               <select id="defaultStudyTab" class="form-input">
-                <option value="commentary">📖 Commentary</option>
-                <option value="crossref">🔗 Cross-References (TSK)</option>
-                <option value="wordstudy">🔤 Word Study / Lexicon</option>
+                <option value="commentary">Commentary</option>
+                <option value="crossref">Cross-References (TSK)</option>
+                <option value="wordstudy">Word Study / Lexicon</option>
               </select>
             </div>
 
@@ -1927,7 +2079,7 @@
             <div class="setting-row">
               <div class="setting-info">
                 <div class="setting-label">Tooltip Trigger</div>
-                <div class="hint-text">When Word Study mode is active (via <b>🔬 Word Study</b> on the toolbar or hotkey <b>W</b>), choose how lexicon tooltips open</div>
+                <div class="hint-text">When Word Study mode is active (via <b>Word Study</b> on the toolbar or hotkey <b>W</b>), choose how lexicon tooltips open</div>
               </div>
               <select id="wordStudyTrigger" class="form-input">
                 <option value="hover">Hover or Click</option>
@@ -1937,11 +2089,70 @@
           </div>
 
           <div class="card">
+            <div class="card-title">
+              <svg class="popup-svg-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="1.5"/></svg>
+              <span>Sermon Mode ("Look at the Book" Visual Markup)</span>
+            </div>
+            <div class="hint-text" style="margin-bottom:10px;">
+              Draw hand-styled circles, boxes, underlines, word-level highlights, connecting arrows, freehand drawings, and handwritten margin notes directly over Scripture. Code is <b>100% lazy-loaded</b> only when toggled on, and automatically disabled in Compare Mode.
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Show "Sermon" Button on Study Bar</div>
+                <div class="hint-text">Displays the Sermon Mode toggle button on the top floating study pill (uncheck to hide the button if unused)</div>
+              </div>
+              <label class="switch"><input type="checkbox" id="showSermonBtn"><span class="slider"></span></label>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Auto-Expand Line Spacing &amp; Side Margins</div>
+                <div class="hint-text">Expands line height and side margin room while Sermon Mode is active so circles, arrows, and handwritten notes fit cleanly</div>
+              </div>
+              <label class="switch"><input type="checkbox" id="sermonExpandSpacing"><span class="slider"></span></label>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Maximum Saved Chapters</div>
+                <div class="hint-text">Default is 5 saved chapters; can be expanded up to 40 chapters in local storage</div>
+              </div>
+              <select id="sermonMaxSaved" class="form-input">
+                <option value="5">5 Chapters (Default)</option>
+                <option value="10">10 Chapters</option>
+                <option value="20">20 Chapters</option>
+                <option value="40">40 Chapters</option>
+              </select>
+            </div>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">When Storage Limit Is Reached</div>
+                <div class="hint-text">Choose how Sermon Mode behaves when your saved chapter slots are full</div>
+              </div>
+              <select id="sermonSaveMode" class="form-input">
+                <option value="fifo">Auto-Keep Most Recent (FIFO)</option>
+                <option value="prompt">Ask Which to Replace When Full</option>
+                <option value="manual">Manual Save Button Only</option>
+              </select>
+            </div>
+
+            <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-size:12px;font-weight:700;" id="popupSermonSavedHeader">Saved Sermon Markups (0/5)</span>
+              </div>
+              <div id="popupSermonSavedList" style="display:flex;flex-direction:column;gap:6px;"></div>
+            </div>
+          </div>
+
+          <div class="card">
             <div class="card-title">About the Integrated Study Tools</div>
             <div class="hint-text" style="line-height:1.65;">
               • <b>Commentary</b>: Displays expositions from 4 Modern commentaries plus 22 Classic commentators (Matthew Henry, John Calvin, Pulpit Commentary, JFB, Keil &amp; Delitzsch, Albert Barnes, John Gill, and more).<br>
               • <b>Treasury of Scripture Knowledge (TSK)</b>: Connects cross-references grouped by thematic phrase, with verse previews and one-click jumping.<br>
               • <b>Strong's Lexicon &amp; Interlinear</b>: Greek and Hebrew lexicon entries with transliteration, pronunciation, morphology, definitions, and occurrence counts.<br>
+              • <b>Sermon Mode</b>: "Look at the Book" visual markup with word-snapping circles, underlines, connector arrows, freehand pen, handwritten notes, 5-chapter storage, and clean printer-friendly study sheets.<br>
               • <b>Smart Verse Copy &amp; YouVersion Highlighting</b>: Clean scripture quoting plus cloud-synced YouVersion color highlights.
             </div>
           </div>
@@ -1950,7 +2161,10 @@
         <!-- ================= 5. COPY & CLIPBOARD ================= -->
         <section class="settings-section" data-section="copy" style="display:none;">
           <div class="section-title-wrap">
-            <h2 class="section-title">📋 Copy &amp; Clipboard Formatting</h2>
+            <h2 class="section-title">
+              <svg class="popup-svg-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span>Copy &amp; Clipboard Formatting</span>
+            </h2>
             <p class="section-desc">Control what gets pasted when you select scripture on Bible.com and press <b>Ctrl+C</b> (or click <b>Copy</b> inside the Study Panel or Compare view).</p>
           </div>
 
@@ -1971,7 +2185,7 @@
           <div class="card">
             <div class="card-title">What Gets Pasted</div>
             <div class="hint-text" style="margin-bottom:10px;">
-              Applies whenever you press <b>Ctrl+C</b> (with Clean Highlight Copy on), click <b>Copy</b> in the Study Panel header, or click <b>📋 Copy</b> in Interleaved Compare.
+              Applies whenever you press <b>Ctrl+C</b> (with Clean Highlight Copy on), click <b>Copy</b> in the Study Panel header, or click <b>Copy</b> in Interleaved Compare.
             </div>
             <div class="setting-row">
               <div class="setting-info">
@@ -2024,14 +2238,20 @@
         <!-- ================= 6. DISTRACTION-FREE ================= -->
         <section class="settings-section" data-section="distractions" style="display:none;">
           <div class="section-title-wrap">
-            <h2 class="section-title">👁 Distraction-Free Reading Mode</h2>
+            <h2 class="section-title">
+              <svg class="popup-svg-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              <span>Distraction-Free Reading Mode</span>
+            </h2>
             <p class="section-desc">Hide website chrome, advertisements, cards, and markers for pure immersive reading.</p>
           </div>
 
           <div class="card">
             <div class="card-title">Site Interface Clutter</div>
             <div class="popup-preset-btns" style="margin-bottom:12px;">
-              <button type="button" class="popup-preset-btn" id="popupHideAllBtn">👁 Hide All Distractions</button>
+              <button type="button" class="popup-preset-btn" id="popupHideAllBtn" style="display:inline-flex;align-items:center;gap:5px;">
+                <svg class="popup-svg-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                <span>Hide All Distractions</span>
+              </button>
               <button type="button" class="popup-preset-btn" id="popupShowAllBtn">Show All Website Elements</button>
             </div>
             <div class="setting-row">
@@ -2173,10 +2393,12 @@
         </div>
         <div class="footer-links">
           <a href="https://chromewebstore.google.com/search/Deep%20Bible%3A%20Study%20Tools%20for%20YouVersion" target="_blank" rel="noopener noreferrer" class="footer-link-btn" id="footerRateLink" title="Rate Deep Bible on Chrome Web Store">
-            <span>⭐ Rate on Extension Store ↗</span>
+            <svg class="popup-svg-icon" viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <span>Rate on Extension Store ↗</span>
           </a>
           <a href="privacy.html" target="_blank" rel="noopener noreferrer" class="footer-link-btn" title="View Privacy Policy">
-            <span>🔒 Privacy</span>
+            <svg class="popup-svg-icon" viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <span>Privacy</span>
           </a>
           <a href="https://forms.gle/FN8w2g7MakzTS9GZ9" target="_blank" rel="noopener noreferrer" class="footer-link-btn" id="footerFeedbackLink" title="Submit feedback, report a bug, or request a feature">
             <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -2185,7 +2407,8 @@
             <span>Feedback / Bugs ↗</span>
           </a>
           <a href="welcome/welcome.html" target="_blank" rel="noopener noreferrer" class="footer-link-btn" id="footerWelcomeLink" title="Open Welcome Guide & About">
-            <span>👋 Welcome &amp; About ↗</span>
+            <svg class="popup-svg-icon" viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+            <span>Welcome &amp; About ↗</span>
           </a>
           <a href="https://www.bible.com/bible/59/ROM.9.ESV" target="_blank" rel="noopener noreferrer" class="footer-link-btn" title="Open Bible.com reader">
             <span>Open Bible.com ↗</span>

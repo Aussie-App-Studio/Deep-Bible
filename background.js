@@ -1,10 +1,81 @@
 // Bible.com Enhancer — Background Service Worker
 // Fetches and parses commentaries from BibleHub with in-memory caching
 
-const memoryCommentaryCache = new Map(); // "bookCode:chapter:verse" -> Array<CommentaryBlock>
-const memoryCrossrefCache = new Map();   // "crossref:bookCode:chapter:verse" -> Array<Section>
-const memoryInterlinearCache = new Map(); // "interlinear:bookCode:chapter:verse" -> Array<InterlinearWord>
-const memoryStrongsCache = new Map();     // "strongs:lang:number" -> StrongsLexiconEntry
+function estimateValueBytes(val, depth = 0) {
+  if (val == null) return 8;
+  const t = typeof val;
+  if (t === 'string') return val.length * 2 + 24;
+  if (t === 'number' || t === 'boolean') return 8;
+  if (depth > 8) return 64;
+  if (Array.isArray(val)) {
+    let total = 32;
+    for (let i = 0; i < val.length; i++) total += estimateValueBytes(val[i], depth + 1);
+    return total;
+  }
+  if (t === 'object') {
+    let total = 32;
+    for (const k of Object.keys(val)) {
+      total += k.length * 2 + 16 + estimateValueBytes(val[k], depth + 1);
+    }
+    return total;
+  }
+  return 32;
+}
+
+class BoundedCache {
+  constructor(maxEntries, maxBytes) {
+    this.maxEntries = maxEntries;
+    this.maxBytes = maxBytes;
+    this.map = new Map();
+    this.totalBytes = 0;
+  }
+  get size() {
+    return this.map.size;
+  }
+  has(key) {
+    return this.map.has(key);
+  }
+  get(key) {
+    const entry = this.map.get(key);
+    if (!entry) return undefined;
+    // Refresh LRU recency
+    this.map.delete(key);
+    this.map.set(key, entry);
+    return entry.value;
+  }
+  delete(key) {
+    const entry = this.map.get(key);
+    if (!entry) return false;
+    this.totalBytes -= entry.bytes;
+    return this.map.delete(key);
+  }
+  clear() {
+    this.map.clear();
+    this.totalBytes = 0;
+  }
+  set(key, value) {
+    const bytes = String(key).length * 2 + estimateValueBytes(value);
+    if (this.map.has(key)) {
+      this.delete(key);
+    }
+    // Skip caching a single item that exceeds the entire byte budget
+    if (bytes > this.maxBytes || this.maxEntries <= 0) {
+      return this;
+    }
+    while ((this.map.size >= this.maxEntries || this.totalBytes + bytes > this.maxBytes) && this.map.size > 0) {
+      const oldestKey = this.map.keys().next().value;
+      this.delete(oldestKey);
+    }
+    this.map.set(key, { value, bytes });
+    this.totalBytes += bytes;
+    return this;
+  }
+}
+
+const memoryCommentaryCache = new BoundedCache(50, 4 * 1024 * 1024);   // "bookCode:chapter:verse..." -> Array<CommentaryBlock>
+const memoryCrossrefCache = new BoundedCache(50, 1 * 1024 * 1024);     // "crossref:bookCode:chapter:verse" -> Array<Section>
+const memoryInterlinearCache = new BoundedCache(80, 1 * 1024 * 1024);  // "interlinear:bookCode:chapter:verse" -> Array<InterlinearWord>
+const memoryStrongsCache = new BoundedCache(150, 1 * 1024 * 1024);     // "strongs:lang:number" -> StrongsLexiconEntry
 
 // USFM to BibleHub URL book slug
 const BBE_BH_BOOK_SLUGS = {
@@ -466,7 +537,7 @@ function getTgcCommentary(bookCode, chapter, verse) {
 }
 
 // 2. David Guzik (Enduring Word)
-const memoryGuzikCache = new Map(); // "slug-chapter" -> html
+const memoryGuzikCache = new BoundedCache(25, 2.5 * 1024 * 1024); // "slug-chapter" -> html
 
 function parseGuzikCommentary(html, targetVerse, url) {
   if (!html) return null;
@@ -554,9 +625,6 @@ async function fetchGuzikCommentary(bookCode, chapter, vNum) {
       });
       if (!res.ok) return null;
       html = await res.text();
-      if (memoryGuzikCache.size >= 25) {
-        memoryGuzikCache.delete(memoryGuzikCache.keys().next().value);
-      }
       memoryGuzikCache.set(cacheKey, html);
     }
 
@@ -567,7 +635,7 @@ async function fetchGuzikCommentary(bookCode, chapter, vNum) {
 }
 
 // 3. Dr. Thomas Constable (DTS Expository Notes / Sonic Light)
-const memoryConstableBookCache = new Map(); // bookCode -> html
+const memoryConstableBookCache = new BoundedCache(4, 4.5 * 1024 * 1024); // bookCode -> html
 
 function parseConstableCommentary(html, chapter, vNum, url) {
   if (!html) return null;
@@ -634,9 +702,6 @@ async function fetchConstableCommentary(bookCode, chapter, vNum) {
       });
       if (!res.ok) return null;
       html = await res.text();
-      if (memoryConstableBookCache.size >= 4) {
-        memoryConstableBookCache.delete(memoryConstableBookCache.keys().next().value);
-      }
       memoryConstableBookCache.set(bookCode, html);
     }
 
@@ -656,7 +721,7 @@ const UTLEY_NT_VOLUMES = {
   REV: "VOL14"
 };
 
-const memoryUtleyCache = new Map();
+const memoryUtleyCache = new BoundedCache(25, 2 * 1024 * 1024); // "vol_ch" -> html
 
 function parseUtleyCommentary(html, chapter, vNum, url) {
   if (!html) return null;
@@ -723,9 +788,6 @@ async function fetchUtleyCommentary(bookCode, chapter, vNum) {
       });
       if (!res.ok) return null;
       html = await res.text();
-      if (memoryUtleyCache.size >= 25) {
-        memoryUtleyCache.delete(memoryUtleyCache.keys().next().value);
-      }
       memoryUtleyCache.set(cacheKey, html);
     }
 
@@ -822,11 +884,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       };
       commentaries.sort((a, b) => rank(a.key) - rank(b.key));
 
-      // Keep cache small
-      if (memoryCommentaryCache.size >= 50) {
-        const oldestKey = memoryCommentaryCache.keys().next().value;
-        memoryCommentaryCache.delete(oldestKey);
-      }
       memoryCommentaryCache.set(cacheKey, commentaries);
 
       sendResponse({
@@ -882,10 +939,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       }
 
-      if (memoryCrossrefCache.size >= 50) {
-        const oldestKey = memoryCrossrefCache.keys().next().value;
-        memoryCrossrefCache.delete(oldestKey);
-      }
       memoryCrossrefCache.set(cacheKey, sections);
 
       sendResponse({
@@ -929,10 +982,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const html = await res.text();
       const words = parseInterlinear(html, bookCode);
 
-      if (memoryInterlinearCache.size >= 80) {
-        const oldestKey = memoryInterlinearCache.keys().next().value;
-        memoryInterlinearCache.delete(oldestKey);
-      }
       memoryInterlinearCache.set(cacheKey, words);
 
       sendResponse({
@@ -974,10 +1023,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const html = await res.text();
       const entry = parseStrongsLexicon(html, cleanLang, cleanNum);
 
-      if (memoryStrongsCache.size >= 150) {
-        const oldestKey = memoryStrongsCache.keys().next().value;
-        memoryStrongsCache.delete(oldestKey);
-      }
       memoryStrongsCache.set(cacheKey, entry);
 
       sendResponse({

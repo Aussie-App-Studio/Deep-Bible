@@ -1,6 +1,7 @@
 # Scratch and temporary testing files
 scratch/
 messages_current_screen.png
+node_modules/
 
 # Build and packaging output
 dist/

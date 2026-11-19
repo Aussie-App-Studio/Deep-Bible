@@ -10,6 +10,68 @@
     }
   } catch (e) {}
 
+  // Instant Boot (Anti-Flash): synchronously apply visual classes and CSS variables from the
+  // last saved snapshot before Bible.com paints its first frame. content.js syncs & refreshes this later.
+  function applyInstantBoot() {
+    try {
+      const raw = localStorage.getItem("bbe_boot_v1");
+      if (!raw) return;
+      const b = JSON.parse(raw);
+      if (!b || !b.enabled) return;
+
+      const html = document.documentElement;
+      if (!html) return;
+
+      const add = (cls, cond) => { if (cond) html.classList.add(cls); };
+      add("bbe-on", true);
+      add("bbe-hide-header", b.hideHeader);
+      add("bbe-hide-sidebar", b.hideSidebar);
+      add("bbe-hide-cards", b.hideDistractionCards);
+      add("bbe-hide-footer", b.hideFooter);
+      add("bbe-hide-bottombar", b.hideBottomBar);
+      add("bbe-hide-notes", b.hideFootnotes);
+      add("bbe-hide-headings", b.hideHeadings);
+      add("bbe-hide-vnum", b.hideVerseNumbers);
+      add("bbe-hide-copyright", b.hideCopyright !== false);
+      add("bbe-hide-switcher", b.hideSwitcher);
+      add("bbe-bar-static", b.toolbarBehavior === "static");
+      add("bbe-autodim-bar", b.toolbarBehavior === "smart" || (b.toolbarBehavior !== "static" && b.autoDimBar !== false));
+      add("bbe-wordstudy-active", b.wordStudyMode);
+
+      const validFonts = ["serif", "sans", "mono", "dyslexic"];
+      const fontFam = validFonts.includes(b.fontFamily) ? b.fontFamily : "serif";
+      html.classList.add("bbe-font-" + fontFam);
+
+      let rTheme = b.readerTheme || "system";
+      if (rTheme === "pink") rTheme = "system";
+      const validThemes = ["sepia", "light", "dark", "oled", "blue", "green", "system", "historical"];
+      if (!validThemes.includes(rTheme)) rTheme = "system";
+      html.classList.add("bbe-theme-" + rTheme);
+
+      if (rTheme === "historical") {
+        const hScene = b.historicalScene || "olive";
+        const hParch = b.historicalParchment || "scroll";
+        const hInk = b.historicalInk || "iron";
+        if (hParch === "scroll") html.classList.add("bbe-hist-scroll");
+        if (b.historicalRubrics !== false) html.classList.add("bbe-hist-rubric");
+        if (b.historicalOrnate !== false) html.classList.add("bbe-hist-ornate");
+        if (["iron", "sepia", "black"].includes(hInk)) html.classList.add("bbe-hist-ink-" + hInk);
+        if (hScene === "night") html.classList.add("bbe-hist-scene-night");
+        const dim = Math.min(100, Math.max(0, Number(b.historicalSceneDim ?? 15)));
+        html.style.setProperty("--bbe-hist-veil", `rgba(18, 10, 4, ${(dim / 100).toFixed(2)})`);
+        if (b.historicalBase) html.style.setProperty("--bbe-hist-base", b.historicalBase);
+        if (b.historicalEdge) html.style.setProperty("--bbe-hist-edge", b.historicalEdge);
+        if (b.historicalRule) html.style.setProperty("--bbe-hist-rule", b.historicalRule);
+      }
+
+      if (b.columnWidth) html.style.setProperty("--bbe-width", b.columnWidth + "px");
+      html.style.setProperty("--bbe-font", String(b.fontSize || 100));
+      html.style.setProperty("--bbe-lh", String(b.lineHeight || 1.8));
+    } catch (e) {}
+  }
+
+  applyInstantBoot();
+
   function checkAndRedirect() {
     const p = bbeParsePath(location.pathname);
     if (!p || !p.abbr) return;
