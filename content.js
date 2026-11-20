@@ -2320,13 +2320,25 @@
         switchStudyTab("commentary");
       });
 
-      drawer.querySelector("#bbe-tab-crossref").addEventListener("click", () => {
+      const crossrefTabBtn = drawer.querySelector("#bbe-tab-crossref");
+      crossrefTabBtn.addEventListener("click", () => {
         switchStudyTab("crossref");
       });
+      crossrefTabBtn.addEventListener("mouseenter", () => {
+        if (currentDrawerPassage && currentDrawerPassage.book) {
+          preloadStudyBook(currentDrawerPassage.book, "crossref");
+        }
+      }, { passive: true });
 
-      drawer.querySelector("#bbe-tab-wordstudy").addEventListener("click", () => {
+      const wordstudyTabBtn = drawer.querySelector("#bbe-tab-wordstudy");
+      wordstudyTabBtn.addEventListener("click", () => {
         switchStudyTab("wordstudy");
       });
+      wordstudyTabBtn.addEventListener("mouseenter", () => {
+        if (currentDrawerPassage && currentDrawerPassage.book) {
+          preloadStudyBook(currentDrawerPassage.book, "interlinear");
+        }
+      }, { passive: true });
 
       drawer.querySelector("#bbe-drawer-copy-btn")?.addEventListener("click", async (e) => {
         e.preventDefault();
@@ -3671,7 +3683,9 @@
 
         const summaryEl = document.createElement("div");
         summaryEl.className = "bbe-crossref-summary";
-        summaryEl.innerHTML = `<b>Treasury of Scripture Knowledge (TSK)</b> — <b>${totalVerses}</b> connected ${totalVerses === 1 ? "verse" : "verses"} across <b>${res.sections.length}</b> thematic ${res.sections.length === 1 ? "phrase" : "phrases"}. Click any reference or <b>↗ Jump</b> to view on Bible.com, or <b>Study</b> to inspect in this drawer.`;
+        summaryEl.innerHTML = res.source === "openbible"
+          ? `<b>Cross-References</b> — <b>${totalVerses}</b> connected ${totalVerses === 1 ? "verse" : "verses"}, ranked by relevance. Click any reference or <b>↗ Jump</b> to view on Bible.com, or <b>Study</b> to inspect in this drawer.`
+          : `<b>Treasury of Scripture Knowledge (TSK)</b> — <b>${totalVerses}</b> connected ${totalVerses === 1 ? "verse" : "verses"} across <b>${res.sections.length}</b> thematic ${res.sections.length === 1 ? "phrase" : "phrases"}. Click any reference or <b>↗ Jump</b> to view on Bible.com, or <b>Study</b> to inspect in this drawer.`;
         crossBody.appendChild(summaryEl);
 
         res.sections.forEach(sec => {
@@ -3947,7 +3961,7 @@
     wordBody.innerHTML = `
       <div class="bbe-comm-loading">
         <div class="bbe-spinner"></div>
-        <span>Loading Strong's Greek/Hebrew interlinear &amp; lexicon from BibleHub…</span>
+        <span>Loading Strong's Greek/Hebrew interlinear &amp; lexicon…</span>
       </div>
     `;
 
@@ -4049,12 +4063,13 @@
     safeSendMessage({
       type: "GET_STRONGS_ENTRY",
       lang: word.lang,
-      number: word.num
+      number: word.num,
+      extNum: word.extNum || word.num
     }, (res) => {
       if (!res || !res.ok || !res.entry) {
         container.innerHTML = `
           <div style="font-size:13px;color:#dc2626;">
-            Unable to load Strong's lexicon details for ${word.strongs}.
+            Unable to load Strong's lexicon details for ${bbeEscapeHtml(word.strongs || "")}.
             <a href="https://biblehub.com/${word.lang}/${word.num}.htm" target="_blank" rel="noopener" style="margin-left:8px;color:#2563eb;">View on BibleHub ↗</a>
           </div>
         `;
@@ -4064,13 +4079,16 @@
       const e = res.entry;
       const langClass = word.lang === "hebrew" ? "hebrew" : "greek";
       const bibleHubUrl = `https://biblehub.com/${word.lang}/${word.num}.htm`;
+      const occHtml = e.occurrences
+        ? `<div class="bbe-tooltip-occ"><b>Bible Occurrences:</b> ${e.totalOccurrences ? `<b>${bbeEscapeHtml(String(e.totalOccurrences))}</b> total — ` : ""}${bbeEscapeHtml(e.occurrences)}</div>`
+        : (e.totalOccurrences ? `<div class="bbe-tooltip-occ"><b>Bible Occurrences:</b> <b>${bbeEscapeHtml(String(e.totalOccurrences))}</b> times in the Bible</div>` : "");
 
       container.innerHTML = `
         <div class="bbe-tooltip-header">
           <div class="bbe-tooltip-badge-group">
-            <span class="bbe-strongs-pill notranslate ${langClass}" translate="no">${e.strongs}</span>
-            <span class="bbe-tooltip-translit">${e.translit || word.translit || ''}</span>
-            ${e.phonetic ? `<span class="bbe-tooltip-phonetic">(${e.phonetic})</span>` : ''}
+            <span class="bbe-strongs-pill notranslate ${langClass}" translate="no">${bbeEscapeHtml(e.strongs || "")}</span>
+            <span class="bbe-tooltip-translit">${bbeEscapeHtml(e.translit || word.translit || "")}</span>
+            ${e.phonetic ? `<span class="bbe-tooltip-phonetic">(${bbeEscapeHtml(e.phonetic)})</span>` : ""}
           </div>
           <div class="bbe-tooltip-actions">
             <a href="${bibleHubUrl}" target="_blank" rel="noopener" class="bbe-tooltip-link">BibleHub Lexicon ↗</a>
@@ -4078,17 +4096,13 @@
         </div>
         <div class="bbe-tooltip-main">
           <div class="bbe-tooltip-orig-row">
-            <span class="bbe-tooltip-orig notranslate ${langClass}" translate="no">${e.original || word.original || ''}</span>
-            <span class="bbe-tooltip-pos">${e.pos || word.posFull || word.posCode || ''}</span>
+            <span class="bbe-tooltip-orig notranslate ${langClass}" translate="no">${bbeEscapeHtml(e.original || word.original || "")}</span>
+            <span class="bbe-tooltip-pos">${bbeEscapeHtml(e.pos || word.posFull || word.posCode || "")}</span>
           </div>
-          ${e.pronunciation ? `<div style="font-size:11px;color:#64748b;">Pronunciation: <i>${e.pronunciation}</i></div>` : ''}
-          <div class="bbe-tooltip-def"><b>Definition:</b> ${e.definition || word.shortDef || word.gloss}</div>
-          ${e.occurrences ? `
-            <div class="bbe-tooltip-occ">
-              <b>Bible Occurrences:</b> ${e.totalOccurrences ? `<b>${e.totalOccurrences}</b> total — ` : ''}${e.occurrences}
-            </div>
-          ` : ''}
-          ${e.origin ? `<div style="font-size:11.5px;color:#64748b;margin-top:2px;"><b>Origin:</b> ${e.origin}</div>` : ''}
+          ${e.pronunciation ? `<div style="font-size:11px;color:#64748b;">Pronunciation: <i>${bbeEscapeHtml(e.pronunciation)}</i></div>` : ""}
+          <div class="bbe-tooltip-def"><b>Definition:</b> ${bbeEscapeHtml(e.definition || word.shortDef || word.gloss || "")}</div>
+          ${occHtml}
+          ${e.origin ? `<div style="font-size:11.5px;color:#64748b;margin-top:2px;"><b>Origin:</b> ${bbeEscapeHtml(e.origin)}</div>` : ""}
         </div>
       `;
     });
@@ -4108,6 +4122,7 @@
       });
 
       document.addEventListener("click", (e) => {
+        if (e === lastTooltipTriggerEvent) return;
         if (wordTooltipEl && wordTooltipEl.classList.contains("open")) {
           if (!wordTooltipEl.contains(e.target)) {
             hideWordTooltip();
@@ -4116,6 +4131,466 @@
       });
     }
     return wordTooltipEl;
+  }
+
+  function getWordStudyActivatedToast() {
+    const curP = bbeParsePath(location.pathname, getAllVersions());
+    const chapterEl = getChapterEl();
+    const sampleText = chapterEl ? (chapterEl.textContent || "").slice(0, 400) : "";
+    const isNonEnglish = wsIsNonEnglishTranslation(curP, sampleText ? sampleText.split(/\s+/) : [], "");
+    if (isNonEnglish) {
+      return "Word Study active — click any verse to browse its original Greek/Hebrew words.";
+    }
+    if (S.wordStudyTrigger === "click") {
+      return "Word Study active — click any word for Strong's Greek/Hebrew lexicon.";
+    }
+    return "Word Study mode activated. Hover or click words for Strong's lexicon.";
+  }
+
+  let lastTooltipTriggerEvent = null;
+  let tooltipRenderSeq = 0;
+  const verseInterlinearCache = new Map();
+
+  function cacheVerseInterlinear(key, data) {
+    if (verseInterlinearCache.has(key)) verseInterlinearCache.delete(key);
+    verseInterlinearCache.set(key, data);
+    if (verseInterlinearCache.size > 60) {
+      const oldest = verseInterlinearCache.keys().next().value;
+      if (oldest !== undefined) verseInterlinearCache.delete(oldest);
+    }
+  }
+
+  /* --- Context-Aware Strong's Word Matcher --- */
+  const BBE_WS_STOP_WORDS = new Set([
+    "the", "a", "an", "of", "to", "in", "for", "on", "at", "by", "with", "from",
+    "into", "unto", "upon", "and", "or", "nor", "but", "yet", "so", "as", "if",
+    "is", "am", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+    "hath", "hast", "do", "does", "did", "doth", "dost", "will", "shall", "shalt",
+    "wilt", "would", "should", "may", "might", "must", "can", "could", "that",
+    "this", "these", "those", "it", "its", "he", "him", "his", "she", "her", "hers",
+    "they", "them", "their", "theirs", "we", "us", "our", "ours", "i", "me", "my",
+    "mine", "you", "your", "yours", "thou", "thee", "thy", "thine", "ye", "who",
+    "whom", "whose", "which", "what", "there", "here", "then", "than", "not", "no"
+  ]);
+
+  const BBE_WS_META_WORDS = new Set([
+    "strong", "strongs", "greek", "hebrew", "properly", "literally", "figuratively",
+    "probably", "perhaps", "used", "akin", "derived", "meaning", "denoting",
+    "signifying", "emphatic", "intensive", "primitive", "primary", "unused", "root",
+    "verb", "noun", "pronoun", "particle", "conjunction", "preposition", "article",
+    "adjective", "adverb", "hence", "also", "especially", "generally", "specifically"
+  ]);
+
+  const BBE_WS_IRREGULAR_LEMMAS = {
+    thou: "you", thee: "you", thy: "your", thine: "your", ye: "you",
+    hath: "have", hast: "have", doth: "do", dost: "do", art: "be", wast: "be", wert: "be",
+    shalt: "shall", wilt: "will", saith: "say", spake: "say", unto: "to",
+    whosoever: "whoever", whatsoever: "whatever", wherefore: "therefore",
+    verily: "truly", lo: "behold", yea: "yes", nay: "no",
+    brethren: "brother", begat: "beget", begotten: "beget",
+    said: "say", spoke: "say", spoken: "say",
+    gave: "give", given: "give", came: "come", went: "go", gone: "go",
+    saw: "see", seen: "see", knew: "know", known: "know",
+    made: "make", took: "take", taken: "take", brought: "bring",
+    told: "tell", heard: "hear", sent: "send", kept: "keep",
+    stood: "stand", found: "find", held: "hold", wrote: "write", written: "write",
+    born: "bear", borne: "bear", died: "die", dead: "die",
+    rose: "rise", risen: "rise", fell: "fall", fallen: "fall",
+    built: "build", ate: "eat", eaten: "eat", drank: "drink", drunk: "drink",
+    slept: "sleep", wept: "weep", sought: "seek", taught: "teach", thought: "think",
+    fled: "flee", slew: "slay", slain: "slay", smote: "strike", struck: "strike",
+    swore: "swear", sworn: "swear", chose: "choose", chosen: "choose",
+    broke: "break", broken: "break",
+    children: "child", men: "man", women: "woman", feet: "foot", teeth: "tooth",
+    lives: "life", wives: "wife", wolves: "wolf", thieves: "thief",
+    sheaves: "sheaf", elders: "elder", mercies: "mercy"
+  };
+
+  function wsNormalizeWord(raw) {
+    if (!raw) return "";
+    return String(raw)
+      .toLowerCase()
+      .replace(/['’]s$/i, "")
+      .replace(/^['’\-–—]+|['’\-–—]+$/g, "")
+      .replace(/[^a-z0-9]/g, "");
+  }
+
+  function wsStemWord(norm) {
+    if (!norm) return "";
+    let w = BBE_WS_IRREGULAR_LEMMAS[norm] || norm;
+    if (w.length <= 3) return w;
+
+    if (w.length > 5 && (w.endsWith("eth") || w.endsWith("est"))) {
+      w = w.slice(0, -3);
+      if (BBE_WS_IRREGULAR_LEMMAS[w]) w = BBE_WS_IRREGULAR_LEMMAS[w];
+    } else if (w.length > 4 && w.endsWith("ies")) {
+      return w.slice(0, -3) + "y";
+    } else if (w.length > 4 && w.endsWith("ied")) {
+      return w.slice(0, -3) + "y";
+    } else if (w.length > 5 && w.endsWith("ing")) {
+      w = w.slice(0, -3);
+      if (w.length >= 3 && w[w.length - 1] === w[w.length - 2] && !/[lsz]$/.test(w)) {
+        w = w.slice(0, -1);
+      }
+    } else if (w.length > 4 && w.endsWith("ed")) {
+      w = w.slice(0, -2);
+      if (w.length >= 3 && w[w.length - 1] === w[w.length - 2] && !/[lsz]$/.test(w)) {
+        w = w.slice(0, -1);
+      }
+    } else if (w.length > 4 && /(?:shes|ches|xes|zes|sses)$/.test(w)) {
+      w = w.slice(0, -2);
+    } else if (w.length > 3 && w.endsWith("s") && !/(?:ss|us|is)$/.test(w)) {
+      w = w.slice(0, -1);
+    }
+
+    if (w.length >= 4 && w.endsWith("e") && !w.endsWith("ee")) {
+      w = w.slice(0, -1);
+    }
+    return w;
+  }
+
+  function wsTokenizeEnglish(text) {
+    if (!text) return [];
+    const rawParts = String(text).split(/[^A-Za-z0-9'’]+/);
+    const out = [];
+    for (const part of rawParts) {
+      const n = wsNormalizeWord(part);
+      if (n) out.push(n);
+    }
+    return out;
+  }
+
+  function wsParseGlossTokens(gloss) {
+    if (!gloss) return { primary: [], supplied: [], all: [] };
+    const cleaned = String(gloss).replace(/[—–\-]{2,}/g, " ");
+    const supplied = [];
+    const primaryStr = cleaned.replace(/\[([^\]]*)\]/g, (_, inner) => {
+      supplied.push(...wsTokenizeEnglish(inner));
+      return " ";
+    });
+    const primary = wsTokenizeEnglish(primaryStr);
+    const all = wsTokenizeEnglish(cleaned.replace(/[\[\]]/g, " "));
+    return { primary, supplied, all };
+  }
+
+  function wsIsNonEnglishTranslation(p, verseRawTokens, rawWord) {
+    const allVers = getAllVersions();
+    const key = (p && p.abbr && allVers[p.abbr]) ? p.abbr : (p ? bbeKeyForId(p.id, allVers) : null);
+    const builtIn = key ? BBE_VERSIONS[key] : null;
+    if (builtIn && builtIn.lang) {
+      return builtIn.lang !== "en";
+    }
+    const sample = (Array.isArray(verseRawTokens) && verseRawTokens.length > 0)
+      ? verseRawTokens.join(" ")
+      : (rawWord || "");
+    const letters = sample.match(/\p{L}/gu) || [];
+    if (letters.length === 0) return false;
+    const nonLatinCount = letters.filter(ch => /[^\u0000-\u024F]/.test(ch)).length;
+    return (nonLatinCount / letters.length) > 0.25;
+  }
+
+  function wsExtractVerseContext(verseEl, targetNode, targetStart, targetEnd, clickedWord) {
+    const fallbackNorm = wsNormalizeWord(clickedWord);
+    const fallbackStem = wsStemWord(fallbackNorm);
+    const fallbackCtx = {
+      rawWord: clickedWord || "",
+      normWord: fallbackNorm,
+      stemWord: fallbackStem,
+      prevNorm: "",
+      nextNorm: "",
+      wordIndex: 0,
+      totalWords: 1,
+      verseRatio: 0.5,
+      occurrenceIdx: 0,
+      occurrenceCount: 1,
+      verseRawTokens: clickedWord ? [clickedWord] : []
+    };
+    if (!verseEl) return fallbackCtx;
+
+    const chapterEl = getChapterEl();
+    const usfm = verseEl.getAttribute("data-usfm");
+    let verseEls = [verseEl];
+    if (usfm && chapterEl) {
+      const matched = Array.from(chapterEl.querySelectorAll(`[class*="_verse"][data-usfm="${CSS.escape(usfm)}"]`));
+      if (matched.length > 0) verseEls = matched;
+    }
+
+    const skipSelector = '[class*="_label"], [class*="_verse-number"], [class*="_note"], sup, .bbe-verse-badge, .bbe-verse-actions-wrap, button';
+    const tokens = [];
+    let foundIdx = -1;
+    const wordRe = /[\p{L}\p{M}]+(?:['’\-][\p{L}\p{M}]+)*/gu;
+
+    for (const vEl of verseEls) {
+      const walker = document.createTreeWalker(vEl, NodeFilter.SHOW_TEXT, {
+        acceptNode(n) {
+          if (!n.nodeValue || !n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+          if (n.parentElement && n.parentElement.closest(skipSelector)) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+
+      let curNode;
+      while ((curNode = walker.nextNode())) {
+        const str = curNode.nodeValue;
+        wordRe.lastIndex = 0;
+        let m;
+        while ((m = wordRe.exec(str)) !== null) {
+          const wRaw = m[0];
+          const wStart = m.index;
+          const wEnd = wStart + wRaw.length;
+          const idx = tokens.length;
+          tokens.push({
+            raw: wRaw,
+            norm: wsNormalizeWord(wRaw),
+            stem: wsStemWord(wsNormalizeWord(wRaw))
+          });
+          if (curNode === targetNode && foundIdx === -1) {
+            if (targetStart >= wStart && targetStart <= wEnd) {
+              foundIdx = idx;
+            } else if (wStart >= targetStart && wStart < targetEnd) {
+              foundIdx = idx;
+            }
+          }
+        }
+      }
+    }
+
+    if (tokens.length === 0) return fallbackCtx;
+    if (foundIdx === -1) {
+      foundIdx = tokens.findIndex(t => t.raw === clickedWord || (fallbackNorm && t.norm === fallbackNorm));
+      if (foundIdx === -1) return fallbackCtx;
+    }
+
+    const chosen = tokens[foundIdx];
+    const targetNorm = chosen.norm || fallbackNorm;
+    const targetStem = chosen.stem || fallbackStem;
+
+    let occurrenceIdx = 0;
+    let occurrenceCount = 0;
+    for (let i = 0; i < tokens.length; i++) {
+      const same = targetStem
+        ? (tokens[i].norm === targetNorm || (targetStem.length >= 3 && tokens[i].stem === targetStem))
+        : (tokens[i].raw === chosen.raw);
+      if (same) {
+        if (i < foundIdx) occurrenceIdx++;
+        occurrenceCount++;
+      }
+    }
+
+    const totalWords = tokens.length;
+    return {
+      rawWord: clickedWord || chosen.raw,
+      normWord: targetNorm,
+      stemWord: targetStem,
+      prevNorm: foundIdx > 0 ? tokens[foundIdx - 1].norm : "",
+      nextNorm: foundIdx < totalWords - 1 ? tokens[foundIdx + 1].norm : "",
+      wordIndex: foundIdx,
+      totalWords,
+      verseRatio: totalWords > 1 ? foundIdx / (totalWords - 1) : 0.5,
+      occurrenceIdx,
+      occurrenceCount: Math.max(1, occurrenceCount),
+      verseRawTokens: tokens.map(t => t.raw)
+    };
+  }
+
+  function wsMatchWordToInterlinear(words, ctx, isNonEnglish) {
+    const total = Array.isArray(words) ? words.length : 0;
+    if (total === 0) {
+      return { matchedIdx: -1, confidence: "none", reason: "empty", runnerUps: [], nearbyIndices: [] };
+    }
+
+    const verseRatio = (ctx && typeof ctx.verseRatio === "number") ? ctx.verseRatio : 0.5;
+    const approxCenter = Math.round(verseRatio * (total - 1));
+    const nearbyIndices = [];
+    for (let d = 0; d <= 2 && nearbyIndices.length < 3; d++) {
+      const candidates = d === 0 ? [approxCenter] : [approxCenter - d, approxCenter + d];
+      for (const idx of candidates) {
+        if (idx >= 0 && idx < total && words[idx] && (words[idx].strongs || words[idx].original)) {
+          nearbyIndices.push(idx);
+          if (nearbyIndices.length >= 3) break;
+        }
+      }
+    }
+
+    if (isNonEnglish) {
+      return { matchedIdx: -1, confidence: "none", reason: "non-english", runnerUps: [], nearbyIndices: [] };
+    }
+
+    const targetNorm = ctx?.normWord || "";
+    const targetStem = ctx?.stemWord || "";
+    if (!targetNorm) {
+      return { matchedIdx: -1, confidence: "none", reason: "no-match", runnerUps: [], nearbyIndices };
+    }
+
+    const isStop = BBE_WS_STOP_WORDS.has(targetNorm);
+    const prevNorm = ctx?.prevNorm || "";
+    const nextNorm = ctx?.nextNorm || "";
+    const prevStem = prevNorm && !BBE_WS_STOP_WORDS.has(prevNorm) ? wsStemWord(prevNorm) : "";
+    const nextStem = nextNorm && !BBE_WS_STOP_WORDS.has(nextNorm) ? wsStemWord(nextNorm) : "";
+    const prevBigram = prevNorm ? `${prevNorm} ${targetNorm}` : "";
+    const nextBigram = nextNorm ? `${targetNorm} ${nextNorm}` : "";
+
+    const parsedWords = words.map((w) => {
+      const glossParts = wsParseGlossTokens(w.gloss || "");
+      const primaryStems = glossParts.primary.map(wsStemWord);
+      const suppliedStems = glossParts.supplied.map(wsStemWord);
+      const defTokens = wsTokenizeEnglish(w.shortDef || "").filter(
+        t => t.length >= 3 && !BBE_WS_STOP_WORDS.has(t) && !BBE_WS_META_WORDS.has(t)
+      );
+      const defStems = defTokens.map(wsStemWord);
+      return {
+        w,
+        primary: glossParts.primary,
+        primaryStems,
+        primaryJoined: glossParts.primary.join(" "),
+        supplied: glossParts.supplied,
+        suppliedStems,
+        defTokens,
+        defStems,
+        defJoined: wsTokenizeEnglish(w.shortDef || "").join(" ")
+      };
+    });
+
+    const scored = [];
+    for (let i = 0; i < parsedWords.length; i++) {
+      const pw = parsedWords[i];
+      if (!pw.w || (!pw.w.strongs && !pw.w.num && !pw.w.original)) continue;
+
+      let baseScore = 0;
+      let matchedVia = "";
+
+      // Tier 1: Exact bigram/phrase inside primary gloss
+      if (pw.primary.length >= 2) {
+        if ((prevBigram && pw.primaryJoined.includes(prevBigram)) ||
+            (nextBigram && pw.primaryJoined.includes(nextBigram))) {
+          baseScore = 120;
+          matchedVia = "phrase";
+        }
+      }
+
+      // Tier 2: Exact whole-word token in primary gloss
+      if (baseScore === 0 && pw.primary.includes(targetNorm)) {
+        baseScore = pw.primary.length === 1 ? 112 : 100;
+        matchedVia = "gloss";
+      }
+
+      // Tier 3: Stemmed whole-word token in primary gloss (content words)
+      if (baseScore === 0 && !isStop && targetStem.length >= 3 && pw.primaryStems.includes(targetStem)) {
+        baseScore = pw.primary.length === 1 ? 94 : 88;
+        matchedVia = "stem";
+      }
+
+      // Tier 4: Synonym / phrase in shortDef (content words only)
+      if (baseScore === 0 && !isStop && targetNorm.length >= 3) {
+        if ((prevBigram && !BBE_WS_STOP_WORDS.has(prevNorm) && pw.defJoined.includes(prevBigram)) ||
+            (nextBigram && !BBE_WS_STOP_WORDS.has(nextNorm) && pw.defJoined.includes(nextBigram))) {
+          baseScore = 78;
+          matchedVia = "def-phrase";
+        } else if (pw.defTokens.includes(targetNorm)) {
+          baseScore = 64;
+          matchedVia = "def";
+        } else if (targetStem.length >= 3 && pw.defStems.includes(targetStem)) {
+          baseScore = 56;
+          matchedVia = "def-stem";
+        }
+      }
+
+      // Tier 5: Related long-stem prefix/compound match in primary gloss (e.g. righteous <-> righteousness)
+      if (baseScore === 0 && !isStop && targetStem.length >= 5) {
+        const hasCompound = pw.primaryStems.some(
+          ps => ps.length >= 5 && (ps.startsWith(targetStem) || targetStem.startsWith(ps))
+        );
+        if (hasCompound) {
+          baseScore = 52;
+          matchedVia = "related";
+        }
+      }
+
+      // Tier 6: Bracketed supplied English word (lowest priority; only noted for diagnostics)
+      if (baseScore === 0 && !isStop && pw.supplied.includes(targetNorm)) {
+        baseScore = 40;
+        matchedVia = "supplied";
+      }
+
+      if (baseScore === 0) continue;
+
+      // Neighbor anchor bonus
+      let neighborBonus = 0;
+      if (prevStem && prevStem.length >= 3) {
+        for (let d = 1; d <= 2; d++) {
+          const nb = parsedWords[i - d];
+          if (nb && (nb.primary.includes(prevNorm) || nb.primaryStems.includes(prevStem))) {
+            neighborBonus += d === 1 ? 10 : 5;
+            break;
+          }
+        }
+      }
+      if (nextStem && nextStem.length >= 3) {
+        for (let d = 1; d <= 2; d++) {
+          const nb = parsedWords[i + d];
+          if (nb && (nb.primary.includes(nextNorm) || nb.primaryStems.includes(nextStem))) {
+            neighborBonus += d === 1 ? 10 : 5;
+            break;
+          }
+        }
+      }
+
+      const interRatio = total > 1 ? i / (total - 1) : 0.5;
+      const posBonus = 12 * (1 - Math.abs(verseRatio - interRatio));
+
+      scored.push({
+        idx: i,
+        baseScore,
+        matchedVia,
+        totalScore: baseScore + neighborBonus + posBonus
+      });
+    }
+
+    if (scored.length === 0) {
+      return { matchedIdx: -1, confidence: "none", reason: "no-match", runnerUps: [], nearbyIndices };
+    }
+
+    // k-th occurrence alignment for repeated words in the same verse (e.g., two "God"s in John 1:1)
+    const highGlossCands = scored
+      .filter(c => c.baseScore >= 85)
+      .sort((a, b) => a.idx - b.idx);
+    if (highGlossCands.length > 1 && ctx && ctx.occurrenceCount > 1) {
+      const targetOrderPos = ctx.occurrenceCount > 1
+        ? ctx.occurrenceIdx / (ctx.occurrenceCount - 1)
+        : 0;
+      highGlossCands.forEach((cand, orderIdx) => {
+        const candOrderPos = orderIdx / (highGlossCands.length - 1);
+        const orderBonus = 18 * (1 - Math.abs(targetOrderPos - candOrderPos));
+        cand.totalScore += orderBonus;
+      });
+    }
+
+    scored.sort((a, b) => b.totalScore - a.totalScore);
+    const best = scored[0];
+
+    // Supplied-only matches mean the English word has no direct Greek/Hebrew word behind it
+    if (best.baseScore < 48) {
+      return { matchedIdx: -1, confidence: "none", reason: "no-match", runnerUps: [], nearbyIndices };
+    }
+
+    // Stop word that only matched inside a multi-word phrase (not a standalone particle/article)
+    if (isStop && best.baseScore < 100) {
+      return { matchedIdx: -1, confidence: "none", reason: "stop-word", runnerUps: [], nearbyIndices };
+    }
+
+    const runnerUps = scored
+      .slice(1, 4)
+      .filter(c => c.baseScore >= 52 && (best.totalScore - c.totalScore) <= 28)
+      .map(c => c.idx);
+
+    const confidence = best.baseScore >= 85 ? "high" : "medium";
+    return {
+      matchedIdx: best.idx,
+      confidence,
+      matchedVia: best.matchedVia,
+      runnerUps,
+      nearbyIndices
+    };
   }
 
   function hideWordTooltip() {
@@ -4131,8 +4606,8 @@
       ? targetSpan.getBoundingClientRect()
       : targetSpan;
     if (!rect) return;
-    const tooltipWidth = 340;
-    const tooltipHeight = 240;
+    const tooltipWidth = tooltip.offsetWidth || 344;
+    const tooltipHeight = tooltip.offsetHeight || 240;
     const margin = 10;
 
     let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
@@ -4145,25 +4620,96 @@
     if (top + tooltipHeight > visibleBottom && rect.top > tooltipHeight + margin) {
       top = rect.top - tooltipHeight - 8;
     }
+    top = Math.max(margin, top);
 
     tooltip.style.left = `${Math.round(left)}px`;
     tooltip.style.top = `${Math.round(top)}px`;
   }
 
-  function showWordTooltip(targetSpan, bookCode, chapter, vNum, wordText) {
+  function showWordTooltip(targetSpan, bookCode, chapter, vNum, wordText, options = {}) {
     if (!S.enabled || !S.wordStudyMode) return;
+    const trigger = options.trigger || "click";
+    const ctx = options.ctx || {
+      rawWord: wordText || "",
+      normWord: wsNormalizeWord(wordText || ""),
+      stemWord: wsStemWord(wsNormalizeWord(wordText || "")),
+      verseRatio: 0.5,
+      occurrenceIdx: 0,
+      occurrenceCount: 1
+    };
+    const isNonEnglish = !!options.isNonEnglish;
+
+    // On hover, avoid noisy popups on non-English text or English stop words
+    if (trigger === "hover") {
+      if (isNonEnglish || !ctx.normWord || BBE_WS_STOP_WORDS.has(ctx.normWord)) {
+        return;
+      }
+    }
+
     const tooltip = ensureWordTooltip();
     activeTooltipTarget = targetSpan;
+    const cacheKey = `${bookCode}:${chapter}:${vNum}`;
 
-    positionWordTooltip(targetSpan, tooltip);
-    tooltip.classList.add("open");
+    const handleInterlinearResult = (res) => {
+      if (activeTooltipTarget !== targetSpan) return;
 
-    tooltip.innerHTML = `
-      <div class="bbe-comm-loading" style="padding:10px 0;">
-        <div class="bbe-spinner"></div>
-        <span>Looking up “${wordText}” in Strong's Lexicon…</span>
-      </div>
-    `;
+      if (!res || !res.ok || !Array.isArray(res.words) || res.words.length === 0) {
+        if (trigger === "hover") {
+          hideWordTooltip();
+          return;
+        }
+        tooltip.classList.add("open");
+        tooltip.innerHTML = `
+          <div style="font-size:12px;color:#dc2626;padding:4px 0;">
+            No Strong's interlinear data available for ${bbeEscapeHtml(BBE_BOOK_NAMES[bookCode] || bookCode)} ${bbeEscapeHtml(String(chapter))}:${bbeEscapeHtml(String(vNum))}.
+          </div>
+        `;
+        positionWordTooltip(targetSpan, tooltip);
+        return;
+      }
+
+      const words = res.words;
+      const matchInfo = wsMatchWordToInterlinear(words, ctx, isNonEnglish);
+
+      // On hover, don't flash an empty/miss picker when gliding over paraphrased words
+      if (trigger === "hover" && matchInfo.confidence === "none") {
+        hideWordTooltip();
+        return;
+      }
+
+      tooltip.classList.add("open");
+      if (matchInfo.confidence === "none" || matchInfo.matchedIdx < 0) {
+        renderVersePickerTooltip(tooltip, targetSpan, bookCode, chapter, vNum, words, matchInfo, {
+          wordText,
+          bibleHubUrl: res.bibleHubUrl
+        });
+      } else {
+        renderTooltipContent(tooltip, targetSpan, bookCode, chapter, vNum, words, matchInfo.matchedIdx, {
+          matchInfo,
+          wordText,
+          bibleHubUrl: res.bibleHubUrl,
+          manualPick: false
+        });
+      }
+    };
+
+    if (verseInterlinearCache.has(cacheKey)) {
+      handleInterlinearResult(verseInterlinearCache.get(cacheKey));
+      return;
+    }
+
+    if (trigger === "click") {
+      positionWordTooltip(targetSpan, tooltip);
+      tooltip.classList.add("open");
+      tooltip.innerHTML = `
+        <div class="bbe-comm-loading" style="padding:10px 0;">
+          <div class="bbe-spinner"></div>
+          <span>${isNonEnglish
+            ? `Loading original Greek/Hebrew for ${bbeEscapeHtml(BBE_BOOK_NAMES[bookCode] || bookCode)} ${bbeEscapeHtml(String(chapter))}:${bbeEscapeHtml(String(vNum))}…`
+            : `Looking up “${bbeEscapeHtml(wordText)}” in Strong's Lexicon…`}</span>
+        </div>
+      `;
+    }
 
     safeSendMessage({
       type: "GET_INTERLINEAR",
@@ -4171,78 +4717,161 @@
       chapter: String(chapter),
       verse: vNum
     }, (res) => {
-      if (activeTooltipTarget !== targetSpan) return;
-
-      if (!res || !res.ok || !Array.isArray(res.words) || res.words.length === 0) {
-        tooltip.innerHTML = `
-          <div style="font-size:12px;color:#dc2626;padding:4px 0;">
-            No Strong's interlinear data available for ${BBE_BOOK_NAMES[bookCode] || bookCode} ${chapter}:${vNum}.
-          </div>
-        `;
-        return;
+      if (res && res.ok && Array.isArray(res.words) && res.words.length > 0) {
+        cacheVerseInterlinear(cacheKey, res);
       }
-
-      const words = res.words;
-      const cleanTarget = (wordText || "").toLowerCase().replace(/[^a-z0-9]/gi, "");
-
-      let matchedIdx = words.findIndex(w => {
-        const cleanGloss = (w.gloss || "").toLowerCase().replace(/[^a-z0-9]/gi, "");
-        return cleanGloss === cleanTarget;
-      });
-
-      if (matchedIdx === -1) {
-        matchedIdx = words.findIndex(w => {
-          const cleanGloss = (w.gloss || "").toLowerCase().replace(/[^a-z0-9]/gi, "");
-          const cleanDef = (w.shortDef || "").toLowerCase().replace(/[^a-z0-9]/gi, "");
-          return cleanGloss.includes(cleanTarget) || cleanTarget.includes(cleanGloss) ||
-                 cleanDef.includes(cleanTarget);
-        });
-      }
-
-      if (matchedIdx === -1) {
-        matchedIdx = 0;
-      }
-
-      renderTooltipContent(tooltip, targetSpan, bookCode, chapter, vNum, words, matchedIdx);
+      handleInterlinearResult(res);
     });
   }
 
-  function renderTooltipContent(tooltip, targetSpan, bookCode, chapter, vNum, words, selectedIdx) {
-    const w = words[selectedIdx];
-    if (!w) return;
+  function renderVersePickerTooltip(tooltip, targetSpan, bookCode, chapter, vNum, words, matchInfo, opts = {}) {
+    tooltipRenderSeq++;
+    const isHebrew = words.some(w => w.lang === "hebrew");
+    const langClass = isHebrew ? "hebrew" : "greek";
+    const langLabel = isHebrew ? "Hebrew" : "Greek";
+    const refLabel = `${BBE_BOOK_NAMES[bookCode] || bookCode} ${chapter}:${vNum}`;
+    const hubUrl = opts.bibleHubUrl || `https://biblehub.com/interlinear/`;
+    const wordText = opts.wordText || "";
+    const isBrowseOrNonEnglish = !matchInfo || matchInfo.reason === "non-english" || matchInfo.reason === "browse" || !wordText;
+    const nearbySet = new Set((matchInfo && Array.isArray(matchInfo.nearbyIndices)) ? matchInfo.nearbyIndices : []);
 
-    const langClass = w.lang === "hebrew" ? "hebrew" : "greek";
-    const bibleHubUrl = `https://biblehub.com/${w.lang}/${w.num}.htm`;
+    const hintHtml = isBrowseOrNonEnglish
+      ? `Original ${langLabel} words in <b>${bbeEscapeHtml(refLabel)}</b> — click any word:`
+      : `No direct match for “<b>${bbeEscapeHtml(wordText)}</b>” in this translation — choose a word:`;
 
     tooltip.innerHTML = `
       <div class="bbe-tooltip-header">
         <div class="bbe-tooltip-badge-group">
-          <span class="bbe-strongs-pill notranslate ${langClass}" translate="no">${w.strongs}</span>
-          <span class="bbe-tooltip-translit">${w.translit || ''}</span>
+          <span class="bbe-strongs-pill notranslate ${langClass}" translate="no">${langLabel}</span>
+          <span class="bbe-tooltip-translit">${bbeEscapeHtml(refLabel)}</span>
         </div>
         <div class="bbe-tooltip-actions">
-          <a href="${bibleHubUrl}" target="_blank" rel="noopener" class="bbe-tooltip-link">BibleHub ↗</a>
+          <a href="${bbeEscapeHtml(hubUrl)}" target="_blank" rel="noopener" class="bbe-tooltip-link">Interlinear ↗</a>
           <button type="button" class="bbe-tooltip-close" title="Close">✕</button>
         </div>
       </div>
+      <div class="bbe-tooltip-picker-hint">${hintHtml}</div>
+      <div class="bbe-tooltip-picker-grid" id="bbe-tooltip-picker-grid"></div>
+      <div class="bbe-tooltip-footer">
+        <button type="button" class="bbe-preview-btn" id="bbe-tooltip-drawer-btn" style="font-size:11px;padding:3px 8px;display:inline-flex;align-items:center;gap:5px;">${BBE_ICONS.book(12)}<span>Open in Study Drawer</span></button>
+      </div>
+    `;
+
+    tooltip.querySelector(".bbe-tooltip-close").addEventListener("click", () => hideWordTooltip());
+    tooltip.querySelector("#bbe-tooltip-drawer-btn").addEventListener("click", () => {
+      hideWordTooltip();
+      openCommentaryDrawer(bookCode, chapter, vNum, "wordstudy", 0, { explicitVerse: true });
+    });
+
+    const grid = tooltip.querySelector("#bbe-tooltip-picker-grid");
+    words.forEach((item, idx) => {
+      if (!item || (!item.strongs && !item.original)) return;
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "bbe-tooltip-picker-chip" + (nearbySet.has(idx) ? " nearby" : "");
+      const glossLabel = (item.gloss || "").replace(/^[\s—–\-]+$/g, "").trim() || item.shortDef || item.translit || item.strongs;
+      const subLabel = item.translit || item.strongs || "";
+      chip.innerHTML = `
+        <span class="bbe-picker-gloss">${bbeEscapeHtml(glossLabel)}</span>
+        ${subLabel ? `<span class="bbe-picker-translit">${bbeEscapeHtml(subLabel)}</span>` : ""}
+      `;
+      chip.title = `${item.strongs || ""} (${item.translit || ""}): ${item.original || ""}`;
+      chip.addEventListener("click", () => {
+        renderTooltipContent(tooltip, targetSpan, bookCode, chapter, vNum, words, idx, {
+          matchInfo,
+          wordText,
+          bibleHubUrl: hubUrl,
+          manualPick: true,
+          fromPicker: true
+        });
+      });
+      grid.appendChild(chip);
+    });
+
+    positionWordTooltip(targetSpan, tooltip);
+  }
+
+  function renderTooltipContent(tooltip, targetSpan, bookCode, chapter, vNum, words, selectedIdx, opts = {}) {
+    const w = words[selectedIdx];
+    if (!w) return;
+
+    const myRenderSeq = ++tooltipRenderSeq;
+    const langClass = w.lang === "hebrew" ? "hebrew" : "greek";
+    const bibleHubUrl = `https://biblehub.com/${w.lang}/${w.num}.htm`;
+    const matchInfo = opts.matchInfo || null;
+    const wordText = opts.wordText || "";
+    const manualPick = !!opts.manualPick;
+    const runnerUpSet = new Set((!manualPick && matchInfo && Array.isArray(matchInfo.runnerUps)) ? matchInfo.runnerUps : []);
+
+    let matchBarHtml = "";
+    if (!manualPick && matchInfo && wordText) {
+      const cleanGlossDisplay = (w.gloss || "").replace(/^[\s—–\-]+$/g, "").trim();
+      if (matchInfo.confidence === "medium") {
+        matchBarHtml = `
+          <div class="bbe-tooltip-match-bar medium">
+            Closest match for “<b>${bbeEscapeHtml(wordText)}</b>”${cleanGlossDisplay ? ` → “${bbeEscapeHtml(cleanGlossDisplay)}”` : ""} · pick another below if needed
+          </div>
+        `;
+      } else if (matchInfo.confidence === "high" && cleanGlossDisplay) {
+        const sameText = wsNormalizeWord(wordText) === wsNormalizeWord(cleanGlossDisplay);
+        matchBarHtml = sameText
+          ? ""
+          : `<div class="bbe-tooltip-match-bar high">Matched “<b>${bbeEscapeHtml(wordText)}</b>” → “${bbeEscapeHtml(cleanGlossDisplay)}”</div>`;
+      }
+    }
+
+    tooltip.innerHTML = `
+      <div class="bbe-tooltip-header">
+        <div class="bbe-tooltip-badge-group">
+          ${opts.fromPicker ? `<button type="button" class="bbe-tooltip-back-btn" id="bbe-tooltip-back-btn" title="Back to all words in verse">← All</button>` : ""}
+          <span class="bbe-strongs-pill notranslate ${langClass}" translate="no">${bbeEscapeHtml(w.strongs || "")}</span>
+          <span class="bbe-tooltip-translit">${bbeEscapeHtml(w.translit || "")}</span>
+        </div>
+        <div class="bbe-tooltip-actions">
+          <a href="${bbeEscapeHtml(bibleHubUrl)}" target="_blank" rel="noopener" class="bbe-tooltip-link">BibleHub ↗</a>
+          <button type="button" class="bbe-tooltip-close" title="Close">✕</button>
+        </div>
+      </div>
+      ${matchBarHtml}
       <div class="bbe-tooltip-main" id="bbe-tooltip-main-content">
         <div class="bbe-tooltip-orig-row">
-          <span class="bbe-tooltip-orig notranslate ${langClass}" translate="no">${w.original || ''}</span>
-          <span class="bbe-tooltip-pos">${w.posCode || ''}</span>
+          <span class="bbe-tooltip-orig notranslate ${langClass}" translate="no">${bbeEscapeHtml(w.original || "")}</span>
+          <span class="bbe-tooltip-pos">${bbeEscapeHtml(w.posCode || "")}</span>
         </div>
-        <div class="bbe-tooltip-def">${w.shortDef || w.gloss || ''}</div>
+        <div class="bbe-tooltip-def">${bbeEscapeHtml(w.shortDef || w.gloss || "")}</div>
         <div class="bbe-comm-loading" style="padding:6px 0;font-size:11px;">
           <div class="bbe-spinner" style="width:12px;height:12px;border-width:1.5px;"></div>
           <span>Loading Strong's definition...</span>
         </div>
       </div>
       <div class="bbe-tooltip-words-strip" id="bbe-tooltip-words-strip"></div>
-      <div style="margin-top:8px;padding-top:6px;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;">
+      <div class="bbe-tooltip-footer">
+        <button type="button" class="bbe-tooltip-all-link" id="bbe-tooltip-all-btn" title="Browse all original words in this verse">All words (${words.length})</button>
         <button type="button" class="bbe-preview-btn" id="bbe-tooltip-drawer-btn" style="font-size:11px;padding:3px 8px;display:inline-flex;align-items:center;gap:5px;">${BBE_ICONS.book(12)}<span>Open in Study Drawer</span></button>
       </div>
     `;
 
     tooltip.querySelector(".bbe-tooltip-close").addEventListener("click", () => hideWordTooltip());
+
+    const backBtn = tooltip.querySelector("#bbe-tooltip-back-btn");
+    if (backBtn) {
+      backBtn.addEventListener("click", () => {
+        renderVersePickerTooltip(tooltip, targetSpan, bookCode, chapter, vNum, words, matchInfo || { reason: "manual", nearbyIndices: [] }, {
+          wordText,
+          bibleHubUrl: opts.bibleHubUrl
+        });
+      });
+    }
+
+    const allBtn = tooltip.querySelector("#bbe-tooltip-all-btn");
+    if (allBtn) {
+      allBtn.addEventListener("click", () => {
+        renderVersePickerTooltip(tooltip, targetSpan, bookCode, chapter, vNum, words, { reason: "browse", nearbyIndices: [] }, {
+          wordText,
+          bibleHubUrl: opts.bibleHubUrl
+        });
+      });
+    }
 
     tooltip.querySelector("#bbe-tooltip-drawer-btn").addEventListener("click", () => {
       hideWordTooltip();
@@ -4250,38 +4879,59 @@
     });
 
     const strip = tooltip.querySelector("#bbe-tooltip-words-strip");
+    let activeChipEl = null;
     words.forEach((item, idx) => {
       const chip = document.createElement("button");
       chip.type = "button";
-      chip.className = "bbe-tooltip-chip" + (idx === selectedIdx ? " active" : "");
+      chip.className = "bbe-tooltip-chip"
+        + (idx === selectedIdx ? " active" : "")
+        + (runnerUpSet.has(idx) ? " suggested" : "");
       chip.textContent = item.gloss || item.translit || item.strongs;
       chip.title = `${item.strongs} (${item.translit}): ${item.original}`;
       chip.addEventListener("click", () => {
-        renderTooltipContent(tooltip, targetSpan, bookCode, chapter, vNum, words, idx);
+        renderTooltipContent(tooltip, targetSpan, bookCode, chapter, vNum, words, idx, {
+          matchInfo,
+          wordText,
+          bibleHubUrl: opts.bibleHubUrl,
+          manualPick: true,
+          fromPicker: opts.fromPicker
+        });
       });
       strip.appendChild(chip);
+      if (idx === selectedIdx) activeChipEl = chip;
     });
+
+    if (activeChipEl && typeof activeChipEl.scrollIntoView === "function") {
+      requestAnimationFrame(() => {
+        activeChipEl.scrollIntoView({ inline: "nearest", block: "nearest" });
+      });
+    }
 
     positionWordTooltip(targetSpan, tooltip);
 
     safeSendMessage({
       type: "GET_STRONGS_ENTRY",
       lang: w.lang,
-      number: w.num
+      number: w.num,
+      extNum: w.extNum || w.num
     }, (res) => {
+      if (myRenderSeq !== tooltipRenderSeq) return;
       const mainEl = tooltip.querySelector("#bbe-tooltip-main-content");
       if (!mainEl) return;
 
       if (res && res.ok && res.entry) {
         const e = res.entry;
+        const occHtml = e.occurrences
+          ? `<div class="bbe-tooltip-occ"><b>Bible Occurrences:</b> ${e.totalOccurrences ? `<b>${bbeEscapeHtml(String(e.totalOccurrences))}</b> — ` : ""}${bbeEscapeHtml(e.occurrences)}</div>`
+          : (e.totalOccurrences ? `<div class="bbe-tooltip-occ"><b>Bible Occurrences:</b> <b>${bbeEscapeHtml(String(e.totalOccurrences))}</b> times in the Bible</div>` : "");
         mainEl.innerHTML = `
           <div class="bbe-tooltip-orig-row">
-            <span class="bbe-tooltip-orig notranslate ${langClass}" translate="no">${e.original || w.original || ''}</span>
-            <span class="bbe-tooltip-pos">${e.pos || w.posFull || w.posCode || ''}</span>
+            <span class="bbe-tooltip-orig notranslate ${langClass}" translate="no">${bbeEscapeHtml(e.original || w.original || "")}</span>
+            <span class="bbe-tooltip-pos">${bbeEscapeHtml(e.pos || w.posFull || w.posCode || "")}</span>
           </div>
-          ${e.phonetic ? `<div class="bbe-tooltip-phonetic">Phonetic: ${e.phonetic} ${e.pronunciation ? `(${e.pronunciation})` : ''}</div>` : ''}
-          <div class="bbe-tooltip-def">${e.definition || w.shortDef || w.gloss}</div>
-          ${e.occurrences ? `<div class="bbe-tooltip-occ"><b>Bible Occurrences:</b> ${e.totalOccurrences ? `<b>${e.totalOccurrences}</b> — ` : ''}${e.occurrences}</div>` : ''}
+          ${e.phonetic ? `<div class="bbe-tooltip-phonetic">Phonetic: ${bbeEscapeHtml(e.phonetic)} ${e.pronunciation ? `(${bbeEscapeHtml(e.pronunciation)})` : ""}</div>` : ""}
+          <div class="bbe-tooltip-def">${bbeEscapeHtml(e.definition || w.shortDef || w.gloss || "")}</div>
+          ${occHtml}
         `;
         positionWordTooltip(targetSpan, tooltip);
       }
@@ -4290,7 +4940,7 @@
 
   // --- Native Caret Range Word Detection (Zero DOM Mutation) ---
   let wordHoverBox = null;
-  let lastHoveredWord = null;
+  let lastHoveredWordKey = null;
 
   function ensureWordHoverBox() {
     if (wordHoverBox && wordHoverBox.isConnected) return wordHoverBox;
@@ -4348,17 +4998,31 @@
       }
     }
 
-    const verseEl = node.parentElement?.closest('[class*="_verse"]');
+    const parentEl = node.parentElement;
+    if (!parentEl) return null;
+    if (parentEl.closest('[class*="_label"], [class*="_verse-number"], [class*="_note"], sup, .bbe-verse-badge, .bbe-verse-actions-wrap, button, a')) {
+      return null;
+    }
+
+    const verseEl = parentEl.closest('[class*="_verse"]');
     if (!verseEl) return null;
 
+    let vNum = null;
     const label = verseEl.querySelector('[class*="_label"]');
-    const vNum = label ? parseInt(label.textContent.trim(), 10) : null;
+    if (label) {
+      vNum = parseInt(label.textContent.trim(), 10);
+    }
+    if ((!vNum || isNaN(vNum)) && verseEl.dataset && verseEl.dataset.usfm) {
+      const parts = verseEl.dataset.usfm.split(".");
+      const parsed = parseInt(parts[parts.length - 1], 10);
+      if (!isNaN(parsed) && parsed > 0) vNum = parsed;
+    }
     if (!vNum || isNaN(vNum)) return null;
 
     const text = node.nodeValue;
     if (!text) return null;
 
-    const isWordChar = (ch) => /[\p{L}\p{M}'-]/u.test(ch);
+    const isWordChar = (ch) => /[\p{L}\p{M}'’-]/u.test(ch);
 
     let start = offset;
     let end = offset;
@@ -4379,7 +5043,7 @@
       end++;
     }
 
-    const word = text.slice(start, end).trim();
+    const word = text.slice(start, end).replace(/^['’\-]+|['’\-]+$/g, "").trim();
     if (!word || word.length < 1) return null;
 
     const wordRange = document.createRange();
@@ -4391,6 +5055,10 @@
       word,
       vNum,
       rect,
+      verseEl,
+      node,
+      start,
+      end,
       targetObj: {
         getBoundingClientRect: () => rect,
         dataset: { verse: String(vNum), word }
@@ -4398,10 +5066,26 @@
     };
   }
 
+  const preloadedStudyKeys = new Set();
+  function preloadStudyBook(bookCode, kind) {
+    if (!S.enabled || !bookCode || !kind) return;
+    const key = `${kind}:${String(bookCode).toUpperCase()}`;
+    if (preloadedStudyKeys.has(key)) return;
+    preloadedStudyKeys.add(key);
+    safeSendMessage({
+      type: "PRELOAD_STUDY_DATA",
+      bookCode: String(bookCode).toUpperCase(),
+      kind
+    });
+  }
+
   function enhanceVersesForWordStudy(p) {
     if (!S.enabled || !S.wordStudyMode) {
       hideWordHoverHighlight();
       return;
+    }
+    if (p && p.book) {
+      preloadStudyBook(p.book, "interlinear");
     }
     const chapterEl = getChapterEl();
     if (!chapterEl) return;
@@ -4420,7 +5104,7 @@
           wordMouseMoveRaf = null;
           const info = getWordAtPoint(clientX, clientY);
           if (!info) {
-            lastHoveredWord = null;
+            lastHoveredWordKey = null;
             hideWordHoverHighlight();
             clearTimeout(wordHoverTimer);
             return;
@@ -4430,13 +5114,20 @@
 
           if (S.wordStudyTrigger === "click") return;
 
-          if (lastHoveredWord !== info.word) {
-            lastHoveredWord = info.word;
+          const hoverKey = `${info.vNum}:${info.word}:${Math.round(info.rect.left)}:${Math.round(info.rect.top)}`;
+          if (lastHoveredWordKey !== hoverKey) {
+            lastHoveredWordKey = hoverKey;
             clearTimeout(wordHoverTimer);
             wordHoverTimer = setTimeout(() => {
               const curP = bbeParsePath(location.pathname, getAllVersions());
               if (curP && info.vNum && info.word) {
-                showWordTooltip(info.targetObj, curP.book, curP.chapter, info.vNum, info.word);
+                const ctx = wsExtractVerseContext(info.verseEl, info.node, info.start, info.end, info.word);
+                const isNonEnglish = wsIsNonEnglishTranslation(curP, ctx.verseRawTokens, info.word);
+                showWordTooltip(info.targetObj, curP.book, curP.chapter, info.vNum, info.word, {
+                  trigger: "hover",
+                  ctx,
+                  isNonEnglish
+                });
               }
             }, 180);
           }
@@ -4448,7 +5139,7 @@
           cancelAnimationFrame(wordMouseMoveRaf);
           wordMouseMoveRaf = null;
         }
-        lastHoveredWord = null;
+        lastHoveredWordKey = null;
         hideWordHoverHighlight();
         clearTimeout(wordHoverTimer);
       });
@@ -4457,14 +5148,23 @@
         if (!S.enabled || !S.wordStudyMode || html.classList.contains("bbe-sermon-drawing")) return;
         // Don't intercept clicks on verse labels, buttons, or links
         if (e.target.closest('[class*="_label"]') || e.target.closest('button') || e.target.closest('a')) return;
+        // Don't hijack drag-to-select highlights
+        if (window.getSelection && window.getSelection().toString().trim().length > 0) return;
 
         const info = getWordAtPoint(e.clientX, e.clientY);
         if (!info) return;
 
+        lastTooltipTriggerEvent = e;
         clearTimeout(wordHoverTimer);
         const curP = bbeParsePath(location.pathname, getAllVersions());
         if (curP && info.vNum && info.word) {
-          showWordTooltip(info.targetObj, curP.book, curP.chapter, info.vNum, info.word);
+          const ctx = wsExtractVerseContext(info.verseEl, info.node, info.start, info.end, info.word);
+          const isNonEnglish = wsIsNonEnglishTranslation(curP, ctx.verseRawTokens, info.word);
+          showWordTooltip(info.targetObj, curP.book, curP.chapter, info.vNum, info.word, {
+            trigger: "click",
+            ctx,
+            isNonEnglish
+          });
         }
       });
     }
@@ -4496,8 +5196,13 @@
   });
 
   window.addEventListener("keydown", (e) => {
-    // Escape key closes commentary drawer
+    // Escape key closes word tooltip or commentary drawer
     if (e.key === "Escape") {
+      if (wordTooltipEl && wordTooltipEl.classList.contains("open")) {
+        e.preventDefault();
+        hideWordTooltip();
+        return;
+      }
       if (isDrawerOpen) {
         e.preventDefault();
         if (isDrawerFullscreen) {
@@ -4614,7 +5319,13 @@
       e.preventDefault();
       const next = !S.wordStudyMode;
       bbeSave({ wordStudyMode: next }).then(() => {
-        showToast(next ? "Word Study mode activated. Hover or click words for Strong's lexicon." : "Word Study mode deactivated.", { icon: "lexicon" });
+        if (next) {
+          const curP = bbeParsePath(location.pathname, getAllVersions());
+          if (curP && curP.book) preloadStudyBook(curP.book, "interlinear");
+        } else {
+          hideWordTooltip();
+        }
+        showToast(next ? getWordStudyActivatedToast() : "Word Study mode deactivated.", { icon: "lexicon" });
       });
       return;
     }
@@ -5309,6 +6020,12 @@
       true,
       BBE_ICONS.book(13)
     );
+    commBtn.addEventListener("mouseenter", () => {
+      if (!p || !p.book) return;
+      const defTab = S.defaultStudyTab || "commentary";
+      if (defTab === "crossref") preloadStudyBook(p.book, "crossref");
+      else if (defTab === "wordstudy") preloadStudyBook(p.book, "interlinear");
+    }, { passive: true });
     rightSec.appendChild(commBtn);
 
     // Word Study Mode Toggle Button
@@ -5318,13 +6035,21 @@
       async () => {
         const next = !S.wordStudyMode;
         await bbeSave({ wordStudyMode: next });
-        showToast(next ? "Word Study mode activated. Hover or click words for Strong's lexicon." : "Word Study mode deactivated.", { icon: "lexicon" });
+        if (next) {
+          if (p && p.book) preloadStudyBook(p.book, "interlinear");
+        } else {
+          hideWordTooltip();
+        }
+        showToast(next ? getWordStudyActivatedToast() : "Word Study mode deactivated.", { icon: "lexicon" });
       },
       S.wordStudyMode,
       true,
       BBE_ICONS.lexicon(13)
     );
     wordStudyBtn.classList.add("bbe-wordstudy-btn");
+    wordStudyBtn.addEventListener("mouseenter", () => {
+      if (p && p.book) preloadStudyBook(p.book, "interlinear");
+    }, { passive: true });
     rightSec.appendChild(wordStudyBtn);
 
     // Sermon Mode ("Look at the Book" Markup) Toggle Button — Lazy-loaded only when toggled on

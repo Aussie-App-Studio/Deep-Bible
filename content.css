@@ -2727,6 +2727,109 @@ html.dark .bbe-tooltip-chip.active {
   border-color: #3b82f6;
   color: #ffffff;
 }
+.bbe-tooltip-chip.suggested:not(.active) {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12);
+  color: inherit;
+}
+
+/* Match Confidence & Verse Interlinear Picker inside Tooltip */
+.bbe-tooltip-match-bar {
+  font-size: 11px;
+  line-height: 1.35;
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.bbe-tooltip-match-bar.high {
+  background: rgba(37, 99, 235, 0.08);
+  color: inherit;
+  opacity: 0.85;
+}
+.bbe-tooltip-match-bar.medium {
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: inherit;
+}
+
+.bbe-tooltip-picker-hint {
+  font-size: 11.5px;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  opacity: 0.85;
+}
+
+.bbe-tooltip-picker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 2px 1px 4px;
+}
+
+.bbe-tooltip-picker-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  background: rgba(148, 163, 184, 0.08);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.14s, border-color 0.14s, transform 0.12s;
+}
+.bbe-tooltip-picker-chip:hover {
+  background: rgba(37, 99, 235, 0.14);
+  border-color: rgba(59, 130, 246, 0.6);
+  transform: translateY(-1px);
+}
+.bbe-tooltip-picker-chip.nearby {
+  border-color: rgba(59, 130, 246, 0.55);
+  background: rgba(37, 99, 235, 0.1);
+}
+.bbe-picker-gloss {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.bbe-picker-translit {
+  font-size: 10px;
+  opacity: 0.68;
+  line-height: 1.15;
+}
+
+.bbe-tooltip-footer {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.bbe-tooltip-all-link,
+.bbe-tooltip-back-btn {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 500;
+  color: inherit;
+  opacity: 0.8;
+  cursor: pointer;
+  transition: opacity 0.14s, background 0.14s, border-color 0.14s;
+}
+.bbe-tooltip-all-link:hover,
+.bbe-tooltip-back-btn:hover {
+  opacity: 1;
+  background: rgba(37, 99, 235, 0.1);
+  border-color: rgba(59, 130, 246, 0.45);
+}
 
 /* Study Drawer Tab 3: Word Study & Lexicon */
 .bbe-drawer-wordstudy {

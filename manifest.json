@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Deep Bible: Study Tools for YouVersion (Bible.com)",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Transform Bible.com into a Study Bible: commentaries, Strong's lexicon, TSK cross-references, 1-key version switching & parallel.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://www.bible.com/*",
     "https://moments.youversionapi.com/*",
+    "https://aussie-app-studio.github.io/*",
     "https://biblehub.com/*",
     "https://*.enduringword.com/*",
     "https://*.soniclight.com/*",

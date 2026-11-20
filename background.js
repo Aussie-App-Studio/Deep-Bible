@@ -77,6 +77,312 @@ const memoryCrossrefCache = new BoundedCache(50, 1 * 1024 * 1024);     // "cross
 const memoryInterlinearCache = new BoundedCache(80, 1 * 1024 * 1024);  // "interlinear:bookCode:chapter:verse" -> Array<InterlinearWord>
 const memoryStrongsCache = new BoundedCache(150, 1 * 1024 * 1024);     // "strongs:lang:number" -> StrongsLexiconEntry
 
+/* ---------------- Static GitHub Pages STEPBible Data (Lazy + IndexedDB Cached) ---------------- */
+// Data derived from STEPBible.org (Tyndale House, Cambridge) under CC BY 4.0.
+// Zero RAM/CPU/network cost unless the user actively opens Word Study.
+const BBE_DATA_BASE_URL = "https://aussie-app-studio.github.io/deep-bible-data/v1";
+const BBE_IDB_NAME = "bbe_stepbible_cache_v1";
+const BBE_IDB_STORE = "kv";
+const BBE_IDB_LRU_KEY = "__lru__";
+const BBE_IDB_MAX_BOOKS = 5;
+const BBE_IDB_MAX_LEX_CHUNKS = 6;
+const BBE_IDB_MAX_XREF_BOOKS = 5;
+
+// Keep only the active 1-3 books & 5 lexicon chunks in hot RAM; up to 5 books / 6 chunks in IndexedDB
+const memoryStepBookCache = new BoundedCache(3, 4 * 1024 * 1024);
+const memoryStepLexCache = new BoundedCache(5, 3 * 1024 * 1024);
+const memoryStepXrefCache = new BoundedCache(3, 4 * 1024 * 1024);
+const inflightStepFetches = new Map();
+let stepDbPromise = null;
+let stepDataUnavailableUntil = 0;
+
+function openStepDb() {
+  if (stepDbPromise) return stepDbPromise;
+  stepDbPromise = new Promise((resolve) => {
+    try {
+      if (typeof indexedDB === "undefined") return resolve(null);
+      const req = indexedDB.open(BBE_IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(BBE_IDB_STORE)) {
+          db.createObjectStore(BBE_IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch (_) {
+      resolve(null);
+    }
+  });
+  return stepDbPromise;
+}
+
+function stepLruBucketForKey(key) {
+  if (key.startsWith("book:")) return { bucket: "book", limit: BBE_IDB_MAX_BOOKS };
+  if (key.startsWith("lex:")) return { bucket: "lex", limit: BBE_IDB_MAX_LEX_CHUNKS };
+  if (key.startsWith("xref:")) return { bucket: "xref", limit: BBE_IDB_MAX_XREF_BOOKS };
+  return null;
+}
+
+function normalizeLruState(raw) {
+  const obj = (raw && typeof raw === "object") ? raw : {};
+  return {
+    book: Array.isArray(obj.book) ? obj.book : [],
+    lex: Array.isArray(obj.lex) ? obj.lex : [],
+    xref: Array.isArray(obj.xref) ? obj.xref : []
+  };
+}
+
+async function stepDbTouchLru(key) {
+  const info = stepLruBucketForKey(key);
+  if (!info) return;
+  const db = await openStepDb();
+  if (!db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(BBE_IDB_STORE, "readwrite");
+      const store = tx.objectStore(BBE_IDB_STORE);
+      const req = store.get(BBE_IDB_LRU_KEY);
+      req.onsuccess = () => {
+        const lru = normalizeLruState(req.result);
+        const list = lru[info.bucket].filter(k => k !== key);
+        list.push(key);
+        while (list.length > info.limit) {
+          const evicted = list.shift();
+          if (evicted) store.delete(evicted);
+        }
+        lru[info.bucket] = list;
+        store.put(lru, BBE_IDB_LRU_KEY);
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch (_) {
+      resolve();
+    }
+  });
+}
+
+async function stepDbGet(key) {
+  const db = await openStepDb();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(BBE_IDB_STORE, "readonly");
+      const req = tx.objectStore(BBE_IDB_STORE).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    } catch (_) {
+      resolve(null);
+    }
+  });
+}
+
+async function stepDbPut(key, val) {
+  const db = await openStepDb();
+  if (!db) return;
+  const info = stepLruBucketForKey(key);
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(BBE_IDB_STORE, "readwrite");
+      const store = tx.objectStore(BBE_IDB_STORE);
+      store.put(val, key);
+      if (info) {
+        const req = store.get(BBE_IDB_LRU_KEY);
+        req.onsuccess = () => {
+          const lru = normalizeLruState(req.result);
+          const list = lru[info.bucket].filter(k => k !== key);
+          list.push(key);
+          while (list.length > info.limit) {
+            const evicted = list.shift();
+            if (evicted) store.delete(evicted);
+          }
+          lru[info.bucket] = list;
+          store.put(lru, BBE_IDB_LRU_KEY);
+        };
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch (_) {
+      resolve();
+    }
+  });
+}
+
+async function fetchStepJsonCached(cacheKey, urlPath, memCache) {
+  if (memCache.has(cacheKey)) {
+    return memCache.get(cacheKey);
+  }
+  if (inflightStepFetches.has(cacheKey)) {
+    return inflightStepFetches.get(cacheKey);
+  }
+
+  const task = (async () => {
+    // 1. Try persistent IndexedDB cache first (0ms offline/repeat speed)
+    const diskVal = await stepDbGet(cacheKey);
+    if (diskVal) {
+      memCache.set(cacheKey, diskVal);
+      stepDbTouchLru(cacheKey).catch(() => {});
+      return diskVal;
+    }
+
+    // 2. If GitHub Pages recently returned 404/network failure, back off briefly
+    if (Date.now() < stepDataUnavailableUntil) {
+      return null;
+    }
+
+    // 3. Fetch compact static JSON from GitHub Pages
+    try {
+      const res = await fetch(`${BBE_DATA_BASE_URL}/${urlPath}`, { cache: "force-cache" });
+      if (!res.ok) {
+        if (res.status === 404) {
+          stepDataUnavailableUntil = Date.now() + 60 * 1000;
+        }
+        return null;
+      }
+      const data = await res.json();
+      if (!data || typeof data !== "object") return null;
+      memCache.set(cacheKey, data);
+      stepDbPut(cacheKey, data).catch(() => {});
+      return data;
+    } catch (_) {
+      stepDataUnavailableUntil = Date.now() + 30 * 1000;
+      return null;
+    }
+  })().finally(() => {
+    inflightStepFetches.delete(cacheKey);
+  });
+
+  inflightStepFetches.set(cacheKey, task);
+  return task;
+}
+
+function decodeStepPos(posCode) {
+  if (!posCode) return "";
+  const s = String(posCode).trim();
+  const simpleMap = {
+    "G:V": "Verb", "H:V": "Verb", "A:V": "Verb (Aramaic)",
+    "G:N-M": "Noun (Masculine)", "G:N-F": "Noun (Feminine)", "G:N-N": "Noun (Neuter)",
+    "H:N-M": "Noun (Masculine)", "H:N-F": "Noun (Feminine)",
+    "G:A": "Adjective", "H:A": "Adjective", "G:ADV": "Adverb", "H:Adv": "Adverb",
+    "G:PREP": "Preposition", "H:Prep": "Preposition", "G:CONJ": "Conjunction", "H:Conj": "Conjunction",
+    "G:P": "Pronoun", "G:T": "Article", "G:PRT": "Particle", "G:INJ": "Interjection",
+    "N:N-M-P": "Proper Noun (Person)", "N:N-F-P": "Proper Noun (Person)", "N:N--L": "Proper Noun (Location)"
+  };
+  if (simpleMap[s]) return simpleMap[s];
+  if (s.startsWith("V-")) return "Verb (" + s + ")";
+  if (s.startsWith("N-")) return "Noun (" + s + ")";
+  if (s.startsWith("A-")) return "Adjective (" + s + ")";
+  if (s.startsWith("T-")) return "Article (" + s + ")";
+  if (s.startsWith("P-") || s.startsWith("R-") || s.startsWith("D-")) return "Pronoun (" + s + ")";
+  if (s === "PREP") return "Preposition";
+  if (s === "CONJ") return "Conjunction";
+  if (s === "ADV") return "Adverb";
+  if (s === "PRT") return "Particle";
+  return s;
+}
+
+function unpackStepInterlinearVerse(bookData, chapter, vNum) {
+  if (!bookData || !bookData.v) return null;
+  const rows = bookData.v[`${chapter}:${vNum}`];
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const isHebrew = bookData.l === "h";
+  const lang = isHebrew ? "hebrew" : "greek";
+  const prefix = isHebrew ? "H" : "G";
+
+  return rows.map((row) => {
+    const extNum = String(row[0] || "");
+    const baseNum = extNum.replace(/[A-Z]+$/i, "");
+    const posCode = row[4] || "";
+    return {
+      strongs: baseNum ? `${prefix}${baseNum}` : "",
+      num: baseNum || null,
+      extNum: extNum || baseNum || null,
+      lang,
+      original: row[1] || "",
+      translit: row[2] || "",
+      gloss: row[3] || "",
+      posCode,
+      posFull: decodeStepPos(posCode),
+      shortDef: row[5] || ""
+    };
+  });
+}
+
+function unpackStepLexiconEntry(chunkData, cleanLang, baseNum, extNum) {
+  if (!chunkData) return null;
+  const item = (extNum && chunkData[extNum]) || chunkData[baseNum];
+  if (!item) return null;
+  const prefix = cleanLang === "hebrew" ? "H" : "G";
+  return {
+    strongs: `${prefix}${baseNum}`,
+    num: baseNum,
+    extNum: extNum || baseNum,
+    lang: cleanLang,
+    original: item.o || "",
+    translit: item.t || "",
+    pronunciation: "",
+    phonetic: "",
+    pos: decodeStepPos(item.p || ""),
+    gloss: item.g || "",
+    definition: item.d || item.g || "",
+    occurrences: "",
+    totalOccurrences: item.c || null,
+    origin: "",
+    source: "stepbible",
+    url: `https://biblehub.com/${cleanLang}/${baseNum}.htm`
+  };
+}
+
+const BBE_USFM_BOOK_NAMES = {
+  GEN: "Genesis", EXO: "Exodus", LEV: "Leviticus", NUM: "Numbers", DEU: "Deuteronomy",
+  JOS: "Joshua", JDG: "Judges", RUT: "Ruth", "1SA": "1 Samuel", "2SA": "2 Samuel",
+  "1KI": "1 Kings", "2KI": "2 Kings", "1CH": "1 Chronicles", "2CH": "2 Chronicles",
+  EZR: "Ezra", NEH: "Nehemiah", EST: "Esther", JOB: "Job", PSA: "Psalm", PRO: "Proverbs",
+  ECC: "Ecclesiastes", SNG: "Song of Solomon", ISA: "Isaiah", JER: "Jeremiah",
+  LAM: "Lamentations", EZK: "Ezekiel", DAN: "Daniel", HOS: "Hosea", JOL: "Joel",
+  AMO: "Amos", OBA: "Obadiah", JON: "Jonah", MIC: "Micah", NAM: "Nahum", HAB: "Habakkuk",
+  ZEP: "Zephaniah", HAG: "Haggai", ZEC: "Zechariah", MAL: "Malachi",
+  MAT: "Matthew", MRK: "Mark", LUK: "Luke", JHN: "John", ACT: "Acts", ROM: "Romans",
+  "1CO": "1 Corinthians", "2CO": "2 Corinthians", GAL: "Galatians", EPH: "Ephesians",
+  PHP: "Philippians", COL: "Colossians", "1TH": "1 Thessalonians", "2TH": "2 Thessalonians",
+  "1TI": "1 Timothy", "2TI": "2 Timothy", TIT: "Titus", PHM: "Philemon", HEB: "Hebrews",
+  JAS: "James", "1PE": "1 Peter", "2PE": "2 Peter", "1JN": "1 John", "2JN": "2 John",
+  "3JN": "3 John", JUD: "Jude", REV: "Revelation"
+};
+
+function unpackStaticCrossrefs(bookData, chapter, vNum) {
+  if (!bookData || !bookData.v) return null;
+  const rows = bookData.v[`${chapter}:${vNum}`];
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const textMap = bookData.t || {};
+
+  const verses = rows.map((row) => {
+    const usfm = String(row[0] || "").toUpperCase();
+    const ch = String(row[1] || "1");
+    const vStart = String(row[2] || "1");
+    const vEnd = row[3] ? String(row[3]) : "";
+    const bookName = BBE_USFM_BOOK_NAMES[usfm] || usfm;
+    const ref = vEnd ? `${bookName} ${ch}:${vStart}-${vEnd}` : `${bookName} ${ch}:${vStart}`;
+    const textKey = vEnd ? `${usfm}.${ch}.${vStart}-${vEnd}` : `${usfm}.${ch}.${vStart}`;
+    return {
+      ref,
+      usfm,
+      bookSlug: BBE_BH_BOOK_SLUGS[usfm] || usfm.toLowerCase(),
+      chapter: ch,
+      verseNum: vStart,
+      text: textMap[textKey] || ""
+    };
+  });
+
+  if (verses.length <= 6) {
+    return [{ phrase: "Top Cross-References", verses }];
+  }
+  return [
+    { phrase: "Top Cross-References", verses: verses.slice(0, 5) },
+    { phrase: "More Related Verses", verses: verses.slice(5) }
+  ];
+}
+
 // USFM to BibleHub URL book slug
 const BBE_BH_BOOK_SLUGS = {
   GEN: "genesis", EXO: "exodus", LEV: "leviticus", NUM: "numbers", DEU: "deuteronomy",
@@ -904,28 +1210,72 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
 
+  if (msg.type === 'PRELOAD_STUDY_DATA') {
+    const upperBook = (msg.bookCode || '').toUpperCase();
+    const kind = msg.kind;
+    if (upperBook && BBE_BH_BOOK_SLUGS[upperBook]) {
+      if (kind === 'interlinear') {
+        fetchStepJsonCached(
+          `book:${upperBook}`,
+          `interlinear/${upperBook}.json`,
+          memoryStepBookCache
+        ).catch(() => {});
+      } else if (kind === 'crossref') {
+        fetchStepJsonCached(
+          `xref:${upperBook}`,
+          `crossref/${upperBook}.json`,
+          memoryStepXrefCache
+        ).catch(() => {});
+      }
+    }
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (msg.type === 'GET_CROSSREFS') {
     const { bookCode, chapter, verse } = msg;
-    const bookSlug = BBE_BH_BOOK_SLUGS[bookCode] || (bookCode ? bookCode.toLowerCase() : 'romans');
+    const upperBook = (bookCode || 'ROM').toUpperCase();
+    const bookSlug = BBE_BH_BOOK_SLUGS[upperBook] || upperBook.toLowerCase();
     const vNum = parseInt(verse, 10) || 1;
-    const cacheKey = `crossref:${bookCode}:${chapter}:${vNum}`;
+    const tskUrl = `https://biblehub.com/tsk/${bookSlug}/${chapter}-${vNum}.htm`;
+    const fallbackUrl = `https://biblehub.com/crossref/${bookSlug}/${chapter}-${vNum}.htm`;
+    const cacheKey = `crossref:${upperBook}:${chapter}:${vNum}`;
 
     if (memoryCrossrefCache.has(cacheKey)) {
+      const cached = memoryCrossrefCache.get(cacheKey);
       sendResponse({
         ok: true,
-        source: 'cache',
-        reference: `${bookCode} ${chapter}:${vNum}`,
-        bibleHubUrl: `https://biblehub.com/tsk/${bookSlug}/${chapter}-${vNum}.htm`,
-        sections: memoryCrossrefCache.get(cacheKey)
+        source: cached.source || 'cache',
+        reference: `${upperBook} ${chapter}:${vNum}`,
+        bibleHubUrl: tskUrl,
+        sections: cached.sections || cached
       });
       return true;
     }
 
-    const tskUrl = `https://biblehub.com/tsk/${bookSlug}/${chapter}-${vNum}.htm`;
-    const fallbackUrl = `https://biblehub.com/crossref/${bookSlug}/${chapter}-${vNum}.htm`;
+    (async () => {
+      // 1. Primary: Static OpenBible.info + BSB JSON on GitHub Pages (5-book LRU IndexedDB cached)
+      const bookData = await fetchStepJsonCached(
+        `xref:${upperBook}`,
+        `crossref/${upperBook}.json`,
+        memoryStepXrefCache
+      );
+      const staticSections = unpackStaticCrossrefs(bookData, String(chapter), vNum);
+      if (staticSections && staticSections.length > 0) {
+        memoryCrossrefCache.set(cacheKey, { sections: staticSections, source: 'openbible' });
+        sendResponse({
+          ok: true,
+          source: 'openbible',
+          reference: `${upperBook} ${chapter}:${vNum}`,
+          bibleHubUrl: tskUrl,
+          sections: staticSections
+        });
+        return;
+      }
 
-    fetch(tskUrl).then(async (res) => {
+      // 2. Graceful fallback: BibleHub TSK / crossref
       let sections = [];
+      const res = await fetch(tskUrl);
       if (res && res.ok) {
         const html = await res.text();
         sections = parseTsk(html);
@@ -939,15 +1289,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
       }
 
-      memoryCrossrefCache.set(cacheKey, sections);
+      memoryCrossrefCache.set(cacheKey, { sections, source: 'biblehub' });
 
       sendResponse({
         ok: true,
-        reference: `${bookCode} ${chapter}:${vNum}`,
+        source: 'biblehub',
+        reference: `${upperBook} ${chapter}:${vNum}`,
         bibleHubUrl: tskUrl,
         sections
       });
-    }).catch(err => {
+    })().catch(err => {
       sendResponse({
         ok: false,
         error: err.message,
@@ -961,36 +1312,60 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'GET_INTERLINEAR') {
     const { bookCode, chapter, verse } = msg;
-    const bookSlug = BBE_BH_BOOK_SLUGS[bookCode] || (bookCode ? bookCode.toLowerCase() : 'romans');
+    const upperBook = (bookCode || 'ROM').toUpperCase();
+    const bookSlug = BBE_BH_BOOK_SLUGS[upperBook] || upperBook.toLowerCase();
     const vNum = parseInt(verse, 10) || 1;
-    const cacheKey = `interlinear:${bookCode}:${chapter}:${vNum}`;
+    const intUrl = `https://biblehub.com/interlinear/${bookSlug}/${chapter}-${vNum}.htm`;
+    const cacheKey = `interlinear:${upperBook}:${chapter}:${vNum}`;
 
     if (memoryInterlinearCache.has(cacheKey)) {
+      const cached = memoryInterlinearCache.get(cacheKey);
       sendResponse({
         ok: true,
-        source: 'cache',
-        reference: `${bookCode} ${chapter}:${vNum}`,
-        bibleHubUrl: `https://biblehub.com/interlinear/${bookSlug}/${chapter}-${vNum}.htm`,
-        words: memoryInterlinearCache.get(cacheKey)
+        source: cached.source || 'cache',
+        reference: `${upperBook} ${chapter}:${vNum}`,
+        bibleHubUrl: intUrl,
+        words: cached.words || cached
       });
       return true;
     }
 
-    const intUrl = `https://biblehub.com/interlinear/${bookSlug}/${chapter}-${vNum}.htm`;
-    fetch(intUrl).then(async (res) => {
+    (async () => {
+      // 1. Primary: Static STEPBible JSON hosted on GitHub Pages + IndexedDB cached (0ms repeat)
+      const bookData = await fetchStepJsonCached(
+        `book:${upperBook}`,
+        `interlinear/${upperBook}.json`,
+        memoryStepBookCache
+      );
+      const stepWords = unpackStepInterlinearVerse(bookData, String(chapter), vNum);
+      if (stepWords && stepWords.length > 0) {
+        memoryInterlinearCache.set(cacheKey, { words: stepWords, source: 'stepbible' });
+        sendResponse({
+          ok: true,
+          source: 'stepbible',
+          reference: `${upperBook} ${chapter}:${vNum}`,
+          bibleHubUrl: intUrl,
+          words: stepWords
+        });
+        return;
+      }
+
+      // 2. Graceful fallback: BibleHub Interlinear (if GitHub Pages not yet published or offline)
+      const res = await fetch(intUrl);
       if (!res.ok) throw new Error(`Interlinear HTTP ${res.status}`);
       const html = await res.text();
-      const words = parseInterlinear(html, bookCode);
+      const words = parseInterlinear(html, upperBook);
 
-      memoryInterlinearCache.set(cacheKey, words);
+      memoryInterlinearCache.set(cacheKey, { words, source: 'biblehub' });
 
       sendResponse({
         ok: true,
-        reference: `${bookCode} ${chapter}:${vNum}`,
+        source: 'biblehub',
+        reference: `${upperBook} ${chapter}:${vNum}`,
         bibleHubUrl: intUrl,
         words
       });
-    }).catch(err => {
+    })().catch(err => {
       sendResponse({
         ok: false,
         error: err.message,
@@ -1003,10 +1378,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'GET_STRONGS_ENTRY') {
-    const { lang, number } = msg;
+    const { lang, number, extNum } = msg;
     const cleanLang = (lang === 'hebrew' || lang === 'H') ? 'hebrew' : 'greek';
-    const cleanNum = String(number).replace(/^[GH]/i, '');
-    const cacheKey = `strongs:${cleanLang}:${cleanNum}`;
+    const prefix = cleanLang === 'hebrew' ? 'H' : 'G';
+    const cleanExt = String(extNum || number || '').replace(/^[GH]/i, '').replace(/^0+/, '').toUpperCase();
+    const cleanNum = cleanExt.replace(/[A-Z]+$/i, '');
+    const cacheKey = `strongs:${cleanLang}:${cleanExt || cleanNum}`;
 
     if (memoryStrongsCache.has(cacheKey)) {
       sendResponse({
@@ -1017,8 +1394,31 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
     }
 
-    const url = `https://biblehub.com/${cleanLang}/${cleanNum}.htm`;
-    fetch(url).then(async (res) => {
+    (async () => {
+      // 1. Primary: Static STEPBible Lexicon chunk on GitHub Pages + IndexedDB cached
+      const numInt = parseInt(cleanNum, 10);
+      if (!isNaN(numInt)) {
+        const chunkId = `${prefix}${Math.floor(numInt / 1000)}`;
+        const chunkData = await fetchStepJsonCached(
+          `lex:${chunkId}`,
+          `lexicon/${chunkId}.json`,
+          memoryStepLexCache
+        );
+        const stepEntry = unpackStepLexiconEntry(chunkData, cleanLang, cleanNum, cleanExt);
+        if (stepEntry) {
+          memoryStrongsCache.set(cacheKey, stepEntry);
+          sendResponse({
+            ok: true,
+            source: 'stepbible',
+            entry: stepEntry
+          });
+          return;
+        }
+      }
+
+      // 2. Graceful fallback: BibleHub Lexicon
+      const url = `https://biblehub.com/${cleanLang}/${cleanNum}.htm`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`Strong's HTTP ${res.status}`);
       const html = await res.text();
       const entry = parseStrongsLexicon(html, cleanLang, cleanNum);
@@ -1027,9 +1427,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       sendResponse({
         ok: true,
+        source: 'biblehub',
         entry
       });
-    }).catch(err => {
+    })().catch(err => {
       sendResponse({
         ok: false,
         error: err.message,

@@ -2,7 +2,8 @@
   "name": "deep-bible-extension",
   "private": true,
   "scripts": {
-    "build": "node scripts/build-release.js"
+    "build": "node scripts/build-release.js",
+    "build:data": "node scripts/build-stepbible-data.js && node scripts/build-crossref-data.js"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
